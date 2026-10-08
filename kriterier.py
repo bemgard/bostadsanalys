@@ -131,8 +131,8 @@ RENOVERINGAR_STORA_ATGARDER = [
 # Nyckelordet matchas bara i början eller slutet av ett ord (skiftlägesokänsligt),
 # så "takkupor" och "yttertak" räknas men inte "kontakt".
 # En åtgärd vars text innehåller något av dessa ord räknas INTE som stor åtgärd
-# (t.ex. "Översyn tak" eller "Besiktning balkonger").
-RENOVERINGAR_UNDANTAG = ["besiktning", "översyn", "uppföljning", "spolning", "inventering"]
+# (t.ex. "Översyn tak", "Besiktning balkonger" eller "Målning av slitna fönster").
+RENOVERINGAR_UNDANTAG = ["besiktning", "översyn", "uppföljning", "spolning", "inventering", "målning"]
 # gul om någon stor åtgärd finns inom horisonten och kassan räcker.
 # röd om stor åtgärd finns OCH likvida medel per kvm totalyta < RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN.
 # (Sparandet påverkar inte denna rad – det har en egen rad.)

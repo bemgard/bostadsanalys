@@ -200,7 +200,7 @@ def main():
     if json_fil.exists():
         print(f"Redan extraherad: {json_fil} (gratis)")
     else:
-        if not fraga_ja_nej("Extraktion kostar ca 1 kr. Fortsätt?"):
+        if not fraga_ja_nej("Extraktion kostar ca 1–2 kr. Fortsätt?"):
             sys.exit("Avbrutet – ingen extraktion gjord.")
         extract_report.extrahera(pdf)
 

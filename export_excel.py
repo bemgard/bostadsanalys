@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import kriterier as k
@@ -50,6 +50,7 @@ FARGER = {
 UTSLAG_FARG = {"GÅ VIDARE": "grön", "AVVAKTA": "gul", "SORTERA BORT": "röd"}
 UTSLAG_ORDNING = {"GÅ VIDARE": 0, "AVVAKTA": 1, "SORTERA BORT": 2}
 MAX_KOLUMNBREDD = 60
+RUBRIK_MAX_BREDD = 16  # längre rubriker radbryts i stället för att göra kolumnen bred
 
 
 def las_bedomningar():
@@ -92,14 +93,24 @@ def rader_for_oversikt(bedomningar, annonser):
 
 
 def formatera_flik(ark):
-    """Fet rubrikrad, frys rubriken, autofilter och kolumnbredd efter innehållet."""
+    """Fet, radbruten rubrikrad, frys rubriken, autofilter och kolumnbredd efter innehållet.
+    Långa rubriker radbryts, så kolumnbredden styrs främst av värdena under rubriken."""
     for cell in ark[1]:
         cell.font = Font(bold=True)
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
     ark.freeze_panes = "A2"
     ark.auto_filter.ref = ark.dimensions
+    rader_i_rubrik = 1
     for kolumn in ark.columns:
-        langst = max(len(str(c.value)) if c.value is not None else 0 for c in kolumn)
-        ark.column_dimensions[get_column_letter(kolumn[0].column)].width = min(langst + 2, MAX_KOLUMNBREDD)
+        rubrik = str(kolumn[0].value or "")
+        langst_varde = max((len(str(c.value)) for c in kolumn[1:] if c.value is not None), default=0)
+        # Längsta ordet i rubriken ska rymmas, annars räcker värdenas bredd (eller RUBRIK_MAX_BREDD)
+        langsta_ord = max((len(o) for o in rubrik.split()), default=0)
+        bredd = min(max(langst_varde, langsta_ord, min(len(rubrik), RUBRIK_MAX_BREDD)) + 2, MAX_KOLUMNBREDD)
+        ark.column_dimensions[get_column_letter(kolumn[0].column)].width = bredd
+        rader_i_rubrik = max(rader_i_rubrik, -(-len(rubrik) // max(bredd - 2, 1)))  # avrundat uppåt
+    # Höjd för rubrikraden så att radbrutna rubriker syns (ca 15 punkter per textrad)
+    ark.row_dimensions[1].height = 15 * rader_i_rubrik
 
 
 def bygg_oversikt(ark, bedomningar, annonser):

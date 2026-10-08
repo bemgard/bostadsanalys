@@ -686,6 +686,9 @@ def bedom(data, idag):
         else "Revisorn lämnar en upplysning av särskild betydelse. Vad gäller den och vad gör styrelsen åt saken?",
         varde_tal=vart,  # text
     ))
+    if farg == SAKNAS:
+        rader[-1]["fraga_till_maklare"] = (
+            "Revisionsberättelsen verkar inte ingå i årsredovisningen. Kan ni skicka den?")
 
     # Saknas uppgiften för att extraktionen är äldre än fältet? Då ska inte mäklaren få frågan.
     for r in rader:
@@ -698,6 +701,7 @@ def bedom(data, idag):
         r["raknas_i_utslag"] = r["nyckeltal"] not in k.UTSLAG_RAKNAS_EJ and r["farg"] != INFO
         if r["nyckeltal"] in k.UTSLAG_RAKNAS_EJ:
             r["kommentar"] += " (Påverkar inte utslaget.)"
+            r["fraga_till_maklare"] = None  # aldrig mäklarfrågor för rader utanför utslaget
 
     # Utslag – "saknas" räknas som färgen i SAKNAS_RAKNAS_SOM
     farger = [k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"] for r in rader if r["raknas_i_utslag"]]
