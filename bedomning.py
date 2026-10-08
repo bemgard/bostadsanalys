@@ -15,6 +15,7 @@ from pathlib import Path
 import kriterier as k
 
 GRON, GUL, ROD, SAKNAS = "grön", "gul", "röd", "saknas"
+INFO = "info"  # informationsrad utan färg – påverkar inte utslaget
 ALDRE_EXTRAKTION = "Extraktionen är gjord med en äldre version – kör om med --force."
 
 # Vilka extraktionsfält varje nyckeltal bygger på. Saknas ett fält helt i JSON-filen
@@ -32,7 +33,8 @@ BEROENDEN = {
     "Rapportens ålder": ("rakenskapsar",),
     "Tomträtt": ("tomtratt",),
     "Äkta förening": ("akta_forening",),
-    "Föreningens storlek": ("antal_bostadsratter",),
+    "Föreningens storlek": ("antal_bostadsratter", "antal_lagenheter_totalt"),
+    "Byggår": ("byggnadsar",),
     "Revisorn": ("revisorns_anmarkning", "revisorns_upplysning"),
 }
 OUTPUT_DIR = Path("data/bedomning")
@@ -214,6 +216,20 @@ def rapportens_alder_manader(data, idag):
     return None if slut is None else manader_mellan(slut, idag)
 
 
+def antal_bostadsratter(data):
+    """(antal, förklaring). Antal bostadsrätter om det står uttryckligen, annars totalt antal
+    lägenheter minus hyresrätter (eller bara totalt om hyresrätter saknas). (None, None) om inget finns."""
+    br = v(data, "antal_bostadsratter")
+    if br is not None:
+        return br, f"{br} bostadsrätter enligt årsredovisningen"
+    totalt, hyr = v(data, "antal_lagenheter_totalt"), v(data, "antal_hyresratter")
+    if totalt is None:
+        return None, None
+    if hyr is None:
+        return totalt, f"{totalt} lägenheter totalt (antal hyresrätter anges inte)"
+    return totalt - hyr, f"{totalt} lägenheter − {hyr} hyresrätter = {totalt - hyr} bostadsrätter"
+
+
 def senaste_ar(text):
     """Senaste årtalet i en text: "2019-2020" → 2020, "2002" → 2002. None om inget årtal finns."""
     ar = [int(a) for a in re.findall(r"\d{4}", text or "")]
@@ -360,6 +376,12 @@ def farg_energikostnad(x):
     if x is None:
         return SAKNAS
     return GUL if x > k.ENERGIKOSTNAD_PER_KVM_GUL_OVER else GRON
+
+
+def farg_byggar(ar):
+    if ar is None:
+        return SAKNAS
+    return ROD if ar > k.BYGGAR_MAX else GRON
 
 
 def farg_storlek(antal):
@@ -607,15 +629,35 @@ def bedom(data, idag):
         varde_tal=akta_text,  # text
     ))
 
-    # Föreningens storlek
-    antal = v(data, "antal_bostadsratter")
+    # Föreningens storlek – kommentaren visar hur antalet räknats fram
+    antal, harledning = antal_bostadsratter(data)
     rader.append(rad(
         "Föreningens storlek", tal(antal, 0, "bostadsrätter"), "–", farg_storlek(antal),
-        {GRON: "Tillräckligt många att dela kostnader och styrelsearbete.",
-         GUL: f"Liten förening (under {k.LITEN_FORENING_GUL_UNDER} bostadsrätter) – större kostnader slår hårt."},
+        {GRON: f"{harledning}. Tillräckligt många att dela kostnader och styrelsearbete.",
+         GUL: f"{harledning}. Liten förening (under {k.LITEN_FORENING_GUL_UNDER} bostadsrätter) – "
+              "större kostnader slår hårt."},
         f"Föreningen har bara {tal(antal, 0)} bostadsrätter. Hur fungerar styrelsearbetet, och hur skulle "
         "en stor oväntad kostnad hanteras?",
         varde_tal=antal,
+    ))
+
+    # Hyresrätter – informationsrad utan färg
+    hyr = v(data, "antal_hyresratter")
+    if hyr is None:
+        hyr_text = "Antal hyresrätter anges inte."
+    elif hyr > 0:
+        hyr_text = "Kan säljas som bostadsrätter när de blir lediga – möjlig intäkt för föreningen."
+    else:
+        hyr_text = "Inga hyresrätter."
+    rader.append(rad("Hyresrätter", tal(hyr, 0, "st"), "–", INFO, {INFO: hyr_text}, None, varde_tal=hyr))
+
+    # Byggår (senaste om flera hus)
+    byggar = v(data, "byggnadsar")
+    rader.append(rad(
+        "Byggår", str(byggar) if byggar else "–", "–", farg_byggar(byggar),
+        {GRON: f"Byggt {byggar}.", ROD: f"Utanför sökfiltret (byggt efter {k.BYGGAR_MAX})."},
+        None,  # sökfilter, ingen fråga till mäklaren
+        varde_tal=byggar,
     ))
 
     # Revisorn
@@ -673,7 +715,8 @@ def bedom(data, idag):
 def skriv_tabell(resultat):
     rubriker = ["Nyckeltal", "Vårt värde", "Föreningens värde", "Färg", "Kort kommentar"]
     rader = [
-        [r["nyckeltal"], r["vart_varde"], r["foreningens_varde"], r["farg"], r["kommentar"]]
+        [r["nyckeltal"], r["vart_varde"], r["foreningens_varde"], "–" if r["farg"] == INFO else r["farg"],
+         r["kommentar"]]
         for r in resultat["nyckeltal"]
     ]
     # Kolumnbredd = längsta texten i varje kolumn (utom sista)

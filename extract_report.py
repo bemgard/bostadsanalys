@@ -81,8 +81,19 @@ SCHEMA_PROPERTIES = {
     "bostadsyta_kvm": falt("number", "Total bostadsyta för bostadsrätterna i kvm."),
     "lokalyta_kvm": falt("number", "Total lokalyta i kvm."),
     "total_yta_kvm": falt("number", "Byggnadernas totalyta i kvm (bostäder + lokaler), så som den står i dokumentet."),
-    "antal_bostadsratter": falt("integer", "Antal bostadsrätter."),
-    "antal_hyresratter": falt("integer", "Antal hyresrätter (hyreslägenheter)."),
+    "antal_bostadsratter": falt(
+        "integer", "Antal bostadsrätter – bara om antalet står uttryckligen. Räkna inte fram det."),
+    "antal_hyresratter": falt(
+        "integer", "Antal hyresrätter (hyreslägenheter) – bara om antalet står uttryckligen. Räkna inte fram det."),
+    "antal_lagenheter_totalt": falt(
+        "integer",
+        "Totalt antal lägenheter när rapporten anger det (t.ex. \"I fastigheten finns 63 lägenheter\"). "
+        "Räkna inte ihop bostadsrätter och hyresrätter själv.",
+    ),
+    "byggnadsar": falt(
+        "integer",
+        "Det år huset uppfördes (byggår, inte värdeår). Finns flera hus med olika byggår: ta det senaste.",
+    ),
     "tomtratt": falt("boolean", "true om marken innehas med tomträtt, false om den ägs (äganderätt)."),
     "arsresultat": falt("number", "Årets resultat i kr för räkenskapsåret (negativt vid förlust)."),
     "likvida_medel_arets_slut": falt("number", "Likvida medel vid årets slut i kr, enligt kassaflödesanalysen."),
@@ -194,7 +205,8 @@ SCHEMA_PROPERTIES = {
             "atgard": {"type": "string"},
             "ar": nullable("string"),
         },
-        "ALLA utförda (historiska) underhållsåtgärder som årsredovisningen listar, en post per åtgärd. "
+        "ALLA utförda (historiska) underhållsåtgärder som årsredovisningen nämner, en post per åtgärd – "
+        "både i listor/tabeller och i löpande text (t.ex. \"stambyte genomfördes 1998\"). "
         "atgard med dokumentets egen formulering, ar exakt som det står (t.ex. '2002' eller '2019-2020'). "
         "Tolka, sammanfatta eller slå inte ihop något. Tom lista om inget anges.",
     ),
@@ -249,8 +261,12 @@ Regler:
   eller motsvarande upplysning som inte är en anmärkning eller ett modifierat uttalande. En sådan upplysning
   ska INTE påverka revisorns anmärkning. beskrivning = kort text om upplysningen (null om ingen finns).
 - Saknas revisionsberättelsen helt: varde = null i båda revisorsfälten.
-- Utfört underhåll: ta med VARJE åtgärd i föreningens historik över utfört underhåll, även gamla.
-  Skriv av åtgärd och år ordagrant; slå inte ihop, förkorta eller tolka.
+- Utfört underhåll: ta med VARJE utförd åtgärd, även gamla – både från listor/tabeller och från
+  löpande text i hela dokumentet (t.ex. "stambyte genomfördes 1998" eller "taket lades om 2015" ger
+  egna poster). Skriv av åtgärd och år ordagrant; slå inte ihop, förkorta eller tolka.
+- Antal lägenheter: antal_bostadsratter, antal_hyresratter och antal_lagenheter_totalt läses bara av
+  när de står uttryckligen. Räkna aldrig fram något av dem ur de andra.
+- Byggår: året huset uppfördes, inte värdeåret. Flera hus med olika byggår: ta det senaste.
 - Grundläggning: bara byggnadens grund (grundförstärkning, sättningar, pålar o.d.), inte markarbeten på gården."""
 
 

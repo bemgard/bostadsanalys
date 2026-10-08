@@ -144,6 +144,11 @@ RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN = 300
 # gul om räkenskapsårets slut ligger mer än så här många månader bakåt i tiden
 RAPPORTENS_ALDER_GUL_MANADER = 15
 
+# --- Byggår ---------------------------------------------------------------------
+# röd om huset är byggt senare än detta år (utanför sökfiltret), annars grön.
+# Vid flera hus används det senaste byggåret.
+BYGGAR_MAX = 1920
+
 # --- Äkta förening ---------------------------------------------------------------
 # Färg om föreningen är oäkta (skattekonsekvenser för medlemmarna); äkta = grön
 OAKTA_FORENING_FARG = "röd"

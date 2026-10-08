@@ -31,6 +31,8 @@ KOLUMNER = {
     "Grundläggning": ("Grundläggning", None),
     "Äkta förening": ("Äkta förening", None),
     "Föreningens storlek": ("Bostadsrätter (antal)", "0"),
+    "Hyresrätter": ("Hyresrätter (antal)", "0"),
+    "Byggår": ("Byggår", "0"),
     "Räntebindning": (f"Räntebindning (% av skulden inom {k.RANTEBINDNING_HORISONT_MANADER} mån)", "0"),
     "Renoveringar": (f"Stora renoveringar (antal inom {k.RENOVERINGAR_HORISONT_AR} år)", "0"),
     "Rapportens ålder": ("Rapportens ålder (mån)", "0"),
@@ -155,7 +157,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
             if talformat:
                 cell.number_format = talformat
             farg = per_namn[n]["farg"] if n in per_namn else "saknas"
-            cell.fill = FARGER.get(farg, FARGER["saknas"])
+            if farg != "info":  # informationsrader får ingen färg
+                cell.fill = FARGER.get(farg, FARGER["saknas"])
 
     formatera_flik(ark)
 
