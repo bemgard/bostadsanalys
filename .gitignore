@@ -1,0 +1,11 @@
+# Hemligheter
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Data
+data/
+output/

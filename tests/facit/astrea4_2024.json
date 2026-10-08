@@ -1,0 +1,129 @@
+{
+  "total_yta_kvm": {
+    "varde": 1969,
+    "sida": 4
+  },
+  "likvida_medel_arets_slut": {
+    "varde": 780902,
+    "sida": 13
+  },
+  "kassaflode_lopande_verksamhet": {
+    "varde": -993406,
+    "sida": 13
+  },
+  "arsavgifter_bostader": {
+    "varde": 1250304,
+    "sida": 15
+  },
+  "lan": [
+    {
+      "langivare": "Swedbank",
+      "belopp": 1193000,
+      "rantesats_procent": 3.13,
+      "villkorsandringsdag": "2025-03-28",
+      "sida": 19
+    },
+    {
+      "langivare": "Swedbank",
+      "belopp": 3091000,
+      "rantesats_procent": 3.13,
+      "villkorsandringsdag": "2025-03-28",
+      "sida": 19
+    },
+    {
+      "langivare": "Swedbank",
+      "belopp": 1716000,
+      "rantesats_procent": 3.11,
+      "villkorsandringsdag": "2025-03-28",
+      "sida": 19
+    },
+    {
+      "langivare": "Swedbank",
+      "belopp": 1000000,
+      "rantesats_procent": 3.11,
+      "villkorsandringsdag": "2025-03-28",
+      "sida": 19
+    },
+    {
+      "langivare": "Swedbank hypotek AB",
+      "belopp": 1200000,
+      "rantesats_procent": 3.13,
+      "villkorsandringsdag": "2025-03-28",
+      "sida": 19
+    },
+    {
+      "langivare": "Swedbank hypotek AB",
+      "belopp": 800000,
+      "rantesats_procent": 3.13,
+      "villkorsandringsdag": "2025-03-28",
+      "sida": 19
+    },
+    {
+      "langivare": "Swedbank",
+      "belopp": 1350000,
+      "rantesats_procent": 3.13,
+      "villkorsandringsdag": "2025-03-28",
+      "sida": 19
+    }
+  ],
+  "planerat_underhall": [
+    {
+      "atgard": "Måla/renovera takkupor samt fönster mot gata",
+      "planerat_ar": "2025",
+      "uppskattad_kostnad": null,
+      "sida": 6
+    },
+    {
+      "atgard": "Översyn tvättmaskiner och torktumlare/torkskåp",
+      "planerat_ar": "2025",
+      "uppskattad_kostnad": null,
+      "sida": 6
+    },
+    {
+      "atgard": "Ytbehandla och renovera entréportar",
+      "planerat_ar": "2025",
+      "uppskattad_kostnad": null,
+      "sida": 6
+    },
+    {
+      "atgard": "Fasadrenovering mot Astrea 3",
+      "planerat_ar": "2025",
+      "uppskattad_kostnad": null,
+      "sida": 6
+    },
+    {
+      "atgard": "Uppföljning radonmätning",
+      "planerat_ar": "2025",
+      "uppskattad_kostnad": null,
+      "sida": 6
+    }
+  ],
+  "skuldsattning_per_kvm_bostadsratt": {
+    "varde": 5365,
+    "sida": 8
+  },
+  "skuldsattning_per_kvm_totalyta": {
+    "varde": 5256,
+    "sida": 8
+  },
+  "genomforda_avgiftshojningar": [
+    {
+      "procent": 5,
+      "fran_datum": "2024-01-01",
+      "sida": 7
+    },
+    {
+      "procent": 25,
+      "fran_datum": "2024-12-01",
+      "sida": 7
+    }
+  ],
+  "planerade_avgiftshojningar": [],
+  "revisorns_anmarkning": {
+    "varde": false
+  },
+  "revisorns_upplysning": {
+    "varde": true,
+    "sida": 21
+  }
+}
