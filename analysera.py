@@ -1,13 +1,18 @@
 """
 Kör hela kedjan med ett kommando: (nedladdning) → extraktion → bedömning → Excel.
-Kör: python analysera.py "<länk till årsredovisning-PDF>"
-     python analysera.py data/pdfs/<fil>.pdf
+Kör: python analysera.py "<länk till årsredovisning-PDF>" [annonsuppgifter]
+     python analysera.py data/pdfs/<fil>.pdf [annonsuppgifter]
+
+Annonsuppgifter (valfria, sparas i data/annonser.json och visas i Excel):
+     --annons <booli-url> --adress <text> --pris <heltal> --avgift <heltal> --rum <tal> --kvm <tal>
 
 Extraktionen (Claude-API:t) kostar pengar och körs bara efter att du svarat ja.
 Alla andra steg är gratis.
 """
 
+import argparse
 import hashlib
+import json
 import re
 import sys
 import unicodedata
@@ -22,6 +27,7 @@ import export_excel
 import extract_report
 
 PDF_DIR = Path("data/pdfs")
+ADRESS_MAX_TECKEN = 100
 
 
 def filsakert_namn(url: str) -> str:
@@ -82,10 +88,82 @@ def fraga_ja_nej(fraga: str) -> bool:
         return False
 
 
+class SvenskParser(argparse.ArgumentParser):
+    """argparse med felmeddelande på svenska."""
+    def error(self, message):
+        sys.exit(f"Fel i argumenten: {message}\n{self.format_usage()}")
+
+
+def heltal(namn, text):
+    """Positivt heltal, t.ex. 5995000. Inga mellanslag eller enheter."""
+    if not re.fullmatch(r"\d+", text) or int(text) == 0:
+        sys.exit(f"Ogiltigt värde för --{namn}: {text!r} (ange ett positivt heltal, t.ex. 5995000)")
+    return int(text)
+
+
+def decimaltal(namn, text):
+    """Positivt tal med punkt eller komma som decimaltecken, t.ex. 2,5 eller 63."""
+    if not re.fullmatch(r"\d+([.,]\d+)?", text) or float(text.replace(",", ".")) == 0:
+        sys.exit(f"Ogiltigt värde för --{namn}: {text!r} (ange ett positivt tal, t.ex. 2 eller 63,5)")
+    tal = float(text.replace(",", "."))
+    return int(tal) if tal.is_integer() else tal
+
+
+def validera_annons(args):
+    """Kontrollera annonsargumenten strikt. Returnerar en dict, eller None om inga angavs."""
+    falt = {"annons": args.annons, "adress": args.adress, "pris": args.pris,
+            "avgift": args.avgift, "rum": args.rum, "kvm": args.kvm}
+    if all(v is None for v in falt.values()):
+        return None
+    if args.annons is None:
+        sys.exit("Annonsuppgifter kräver --annons (länken till annonsen på Booli).")
+    if not re.fullmatch(r"https://www\.booli\.se/[A-Za-z0-9/_.\-]*", args.annons):
+        sys.exit(f"Ogiltig --annons: {args.annons!r} (måste börja med https://www.booli.se/ och vara en vanlig sökväg)")
+    adress = None
+    if args.adress is not None:
+        adress = args.adress.strip()
+        if not adress or len(adress) > ADRESS_MAX_TECKEN or not adress.isprintable():
+            sys.exit(f"Ogiltig --adress: 1–{ADRESS_MAX_TECKEN} tecken, utan radbrytningar eller styrtecken.")
+    return {
+        "annons_url": args.annons,
+        "adress": adress,
+        "pris": heltal("pris", args.pris) if args.pris is not None else None,
+        "avgift": heltal("avgift", args.avgift) if args.avgift is not None else None,
+        "rum": decimaltal("rum", args.rum) if args.rum is not None else None,
+        "kvm": decimaltal("kvm", args.kvm) if args.kvm is not None else None,
+    }
+
+
+def spara_annons(annons, org_nr, pdf):
+    """Lägg till annonsen i data/annonser.json, eller uppdatera den om annons_url redan finns.
+    Uppgifter som inte angavs denna gång behåller sitt tidigare värde."""
+    annonser = export_excel.las_annonser()
+    ny = {**annons, "org_nr": org_nr, "pdf_fil": str(pdf)}
+    befintlig = next((a for a in annonser if a.get("annons_url") == annons["annons_url"]), None)
+    if befintlig:
+        befintlig.update({k: v for k, v in ny.items() if v is not None})
+        print(f"Annons uppdaterad: {annons['annons_url']}")
+    else:
+        annonser.append({**ny, "tillagd_datum": date.today().isoformat()})
+        print(f"Annons sparad: {annons['annons_url']}")
+    export_excel.ANNONSER_FIL.parent.mkdir(parents=True, exist_ok=True)
+    export_excel.ANNONSER_FIL.write_text(json.dumps(annonser, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def main():
-    if len(sys.argv) != 2:
-        sys.exit('Användning: python analysera.py "<länk till årsredovisning-PDF>" | data/pdfs/<fil>.pdf')
-    indata = sys.argv[1]
+    parser = SvenskParser(description="Kör hela kedjan: PDF → extraktion → bedömning → Excel.")
+    parser.add_argument("indata", help="Länk till årsredovisning-PDF eller lokal fil i data/pdfs/")
+    parser.add_argument("--annons", help="Länk till annonsen, https://www.booli.se/...")
+    parser.add_argument("--adress", help=f"Adress (max {ADRESS_MAX_TECKEN} tecken)")
+    parser.add_argument("--pris", help="Pris i kr (heltal)")
+    parser.add_argument("--avgift", help="Månadsavgift i kr (heltal)")
+    parser.add_argument("--rum", help="Antal rum (tal)")
+    parser.add_argument("--kvm", help="Boarea i kvm (tal)")
+    args = parser.parse_args()
+    indata = args.indata
+
+    # Validera annonsuppgifterna innan något annat görs
+    annons = validera_annons(args)
 
     # 1. PDF: ladda ner eller använd lokal fil
     print("== 1. PDF")
@@ -108,6 +186,11 @@ def main():
     # 3. Bedömning
     print("\n== 3. Bedömning")
     resultat = bedomning.bedom_fil(json_fil, date.today())
+
+    # Spara annonsen (kopplas till föreningen via org.nr)
+    if annons:
+        print()
+        spara_annons(annons, resultat.get("org_nr"), pdf)
 
     # 4. Excel-export
     print("\n== 4. Excel")

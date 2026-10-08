@@ -1,7 +1,8 @@
 """
 Steg 4: Samla alla bedömningar i en Excel-fil.
 Kör: python export_excel.py
-Läser data/bedomning/*.json och bygger output/bostadsanalys.xlsx från grunden varje gång.
+Läser data/bedomning/*.json och data/annonser.json och bygger output/bostadsanalys.xlsx
+från grunden varje gång. En rad per annons; föreningar utan annons får en egen rad.
 """
 
 import json
@@ -15,6 +16,7 @@ from openpyxl.utils import get_column_letter
 import kriterier as k
 
 BEDOMNING_DIR = Path("data/bedomning")
+ANNONSER_FIL = Path("data/annonser.json")
 UTFIL = Path("output/bostadsanalys.xlsx")
 
 # Kolumnrubrik (med enhet) och Excel-talformat per nyckeltal.
@@ -54,9 +56,32 @@ def las_bedomningar():
     return bedomningar
 
 
+def las_annonser():
+    """Läs data/annonser.json (lista med annonser), eller tom lista om filen saknas."""
+    if not ANNONSER_FIL.exists():
+        return []
+    try:
+        return json.loads(ANNONSER_FIL.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        sys.exit(f"{ANNONSER_FIL} är inte giltig JSON: {e}")
+
+
 def sorteringsnyckel(b):
-    """GÅ VIDARE först, sedan AVVAKTA, sist SORTERA BORT; inom gruppen färst röda (sedan gula) först."""
+    """GÅ VIDARE först, sedan AVVAKTA, sist SORTERA BORT; inom gruppen färst röda (sedan gula) först.
+    En annons vars förening saknar bedömning (b = None) hamnar sist."""
+    if b is None:
+        return (99, 0, 0, "")
     return (UTSLAG_ORDNING.get(b["utslag"], 9), b["antal_roda"], b["antal_gula"], b["forening"] or "")
+
+
+def rader_for_oversikt(bedomningar, annonser):
+    """Para ihop annonser och bedömningar via org.nr: en rad per annons, plus en rad
+    (utan annons) för varje bedömd förening som ingen annons pekar på. Sorterade."""
+    per_org = {b.get("org_nr"): b for b in bedomningar if b.get("org_nr")}
+    rader = [(a, per_org.get(a.get("org_nr"))) for a in annonser]
+    med_annons = {a.get("org_nr") for a in annonser}
+    rader += [(None, b) for b in bedomningar if not b.get("org_nr") or b.get("org_nr") not in med_annons]
+    return sorted(rader, key=lambda rad: sorteringsnyckel(rad[1]))
 
 
 def formatera_flik(ark):
@@ -70,7 +95,7 @@ def formatera_flik(ark):
         ark.column_dimensions[get_column_letter(kolumn[0].column)].width = min(langst + 2, MAX_KOLUMNBREDD)
 
 
-def bygg_oversikt(ark, bedomningar):
+def bygg_oversikt(ark, bedomningar, annonser):
     # Nyckeltalen i den ordning de först förekommer
     nyckeltal = []
     for b in bedomningar:
@@ -78,21 +103,48 @@ def bygg_oversikt(ark, bedomningar):
             if r["nyckeltal"] not in nyckeltal:
                 nyckeltal.append(r["nyckeltal"])
 
+    # Annonskolumner: (rubrik, talformat)
+    annonskolumner = [("Adress", None), ("Pris (kr)", "#,##0"), ("Avgift (kr/mån)", "#,##0"),
+                      ("Rum", None), ("Boarea (kvm)", None), ("Pris per kvm (kr)", "#,##0")]
     fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula"]
+    forsta_forening = len(annonskolumner) + 1  # kolumnnummer där föreningens kolumner börjar
     # Okänt nyckeltal (finns inte i KOLUMNER) får sitt namn som rubrik och inget talformat
-    ark.append(fasta + [KOLUMNER.get(n, (n, None))[0] for n in nyckeltal])
+    ark.append([r for r, _ in annonskolumner] + fasta + [KOLUMNER.get(n, (n, None))[0] for n in nyckeltal])
 
-    for b in bedomningar:
-        per_namn = {r["nyckeltal"]: r for r in b["nyckeltal"]}
-        ark.append(
-            [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], b["utslag"], b["antal_roda"], b["antal_gula"]]
-            + [per_namn[n].get("varde_tal") if n in per_namn else None for n in nyckeltal]
-        )
+    for a, b in rader_for_oversikt(bedomningar, annonser):
+        # Annonsdelen (tom om föreningen analyserats utan annons)
+        a = a or {}
+        pris, kvm = a.get("pris"), a.get("kvm")
+        pris_per_kvm = round(pris / kvm) if pris and kvm else None
+        annonsdel = [a.get("adress") or a.get("annons_url"), pris, a.get("avgift"), a.get("rum"), kvm, pris_per_kvm]
+
+        # Föreningsdelen (tom om annonsens förening saknar bedömning)
+        if b is None:
+            ark.append(annonsdel + [None] * (len(fasta) + len(nyckeltal)))
+        else:
+            per_namn = {r["nyckeltal"]: r for r in b["nyckeltal"]}
+            ark.append(
+                annonsdel
+                + [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], b["utslag"], b["antal_roda"], b["antal_gula"]]
+                + [per_namn[n].get("varde_tal") if n in per_namn else None for n in nyckeltal]
+            )
         rad = ark.max_row
+
+        # Adressen blir en klickbar länk till annonsen; talformat på annonsens tal
+        if a.get("annons_url"):
+            cell = ark.cell(rad, 1)
+            cell.hyperlink = a["annons_url"]
+            cell.style = "Hyperlink"
+        for i, (_, talformat) in enumerate(annonskolumner, start=1):
+            if talformat:
+                ark.cell(rad, i).number_format = talformat
+
+        if b is None:
+            continue
         # Färga utslaget
-        ark.cell(rad, fasta.index("Utslag") + 1).fill = FARGER[UTSLAG_FARG.get(b["utslag"], "saknas")]
+        ark.cell(rad, forsta_forening + fasta.index("Utslag")).fill = FARGER[UTSLAG_FARG.get(b["utslag"], "saknas")]
         # Talformat och färg för varje nyckeltal (grå om det saknas)
-        for i, n in enumerate(nyckeltal, start=len(fasta) + 1):
+        for i, n in enumerate(nyckeltal, start=forsta_forening + len(fasta)):
             cell = ark.cell(rad, i)
             talformat = KOLUMNER.get(n, (n, None))[1]
             if talformat:
@@ -116,11 +168,12 @@ def main():
     if not bedomningar:
         sys.exit(f"Inga bedömningar hittades i {BEDOMNING_DIR}. Kör bedomning.py först.")
     bedomningar.sort(key=sorteringsnyckel)
+    annonser = las_annonser()
 
     bok = Workbook()
     oversikt = bok.active
     oversikt.title = "Översikt"
-    bygg_oversikt(oversikt, bedomningar)
+    bygg_oversikt(oversikt, bedomningar, annonser)
     bygg_fragor(bok.create_sheet("Frågor till mäklaren"), bedomningar)
 
     UTFIL.parent.mkdir(parents=True, exist_ok=True)
@@ -129,7 +182,7 @@ def main():
     except PermissionError:
         sys.exit(f"Stäng {UTFIL.name} i Excel och kör igen.")
 
-    print(f"✅ {len(bedomningar)} föreningar exporterade till {UTFIL}")
+    print(f"✅ {len(bedomningar)} föreningar och {len(annonser)} annonser exporterade till {UTFIL}")
 
 
 if __name__ == "__main__":
