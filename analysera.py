@@ -31,11 +31,24 @@ ADRESS_MAX_TECKEN = 100
 
 
 def filsakert_namn(url: str) -> str:
-    """Filnamnet ur URL:en (utan query-parametrar), utan å/ä/ö och mellanslag."""
-    namn = unquote(Path(urlparse(url).path).name) or "arsredovisning.pdf"
+    """Filnamnet ur URL:en (utan query-parametrar), utan å/ä/ö och mellanslag, med URL:ens
+    unika sökvägsdel som prefix. Generiska namn som "arsredovisning_2024.pdf" krockar annars
+    mellan föreningar. https://documents.bcdn.se/77/9c/8b5787d9ff71/A_rsredovisning_2024_BRF_Astrea_4.pdf
+    → "8b5787d9ff71_A_rsredovisning_2024_BRF_Astrea_4.pdf"."""
+    sokvag = urlparse(url).path
+    namn = unquote(Path(sokvag).name) or "arsredovisning.pdf"
     namn = unicodedata.normalize("NFKD", namn).encode("ascii", "ignore").decode("ascii")  # å -> a
     namn = re.sub(r"[^A-Za-z0-9._-]+", "_", namn).strip("._") or "arsredovisning"
-    return namn if namn.lower().endswith(".pdf") else f"{namn}.pdf"
+    namn = namn if namn.lower().endswith(".pdf") else f"{namn}.pdf"
+    return f"{unik_del(url)}_{namn}"
+
+
+def unik_del(url: str) -> str:
+    """Den unika delen av URL:ens sökväg: sista mappen före filnamnet (t.ex. "8b5787d9ff71").
+    Saknas en sådan används början av en kontrollsumma av hela URL:en."""
+    mappar = [d for d in Path(urlparse(url).path).parent.parts if d not in ("/", "")]
+    sista = re.sub(r"[^A-Za-z0-9]", "", mappar[-1]) if mappar else ""
+    return sista or hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
 
 
 def identisk_pdf(innehall: bytes) -> Path | None:
@@ -48,11 +61,10 @@ def identisk_pdf(innehall: bytes) -> Path | None:
 
 
 def ladda_ner(url: str) -> Path:
-    """Steg 1: ladda ner PDF:en till data/pdfs/ (om den inte redan finns)."""
+    """Steg 1: ladda ner PDF:en till data/pdfs/.
+    En befintlig fil återanvänds bara om den är byte för byte identisk med den nedladdade –
+    aldrig bara för att namnet stämmer. Därför laddas PDF:en alltid ner (gratis)."""
     sokvag = PDF_DIR / filsakert_namn(url)
-    if sokvag.exists():
-        print(f"PDF finns redan: {sokvag}")
-        return sokvag
 
     print(f"Laddar ner {url} ...")
     try:
@@ -68,12 +80,21 @@ def ladda_ner(url: str) -> Path:
     if not innehall.startswith(b"%PDF"):
         sys.exit("Det nedladdade är ingen PDF (kanske en felsida eller inloggning). Kontrollera länken.")
 
-    # Samma PDF under annat namn? Använd den befintliga, så att extraktionen inte görs (och betalas) två gånger.
+    # Samma PDF finns redan (under detta eller annat namn)? Använd den, så att
+    # extraktionen inte görs (och betalas) två gånger.
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     befintlig = identisk_pdf(innehall)
     if befintlig:
         print(f"Samma PDF finns redan som {befintlig} – använder den.")
         return befintlig
+
+    # Finns en ANNAN PDF med samma namn får den aldrig återanvändas: spara under ett
+    # namn med kontrollsumma, så att den nya PDF:en får en egen extraktion.
+    if sokvag.exists():
+        kontroll = hashlib.sha256(innehall).hexdigest()[:8]
+        ny = sokvag.with_name(f"{sokvag.stem}_{kontroll}.pdf")
+        print(f"En annan PDF heter redan {sokvag.name} – sparar som {ny.name} i stället.")
+        sokvag = ny
 
     sokvag.write_bytes(innehall)
     print(f"Sparad: {sokvag}")
