@@ -30,6 +30,13 @@ FALL = [
     ("Balkong, besiktning", set()),
     ("Ny kontakt i trapphus", set()),
     ("Byte av radiatorer i en lägenhet", set()),
+    # Från Skålens årsredovisning
+    ("Byte av el-central - Utfört", {"el"}),
+    ("Stambyte av VVS och EL - Utfört", {"stambyte", "el"}),
+    ("Korrigeringar i stambytet - Utfört", set()),
+    # "el" bara som helt ord
+    ("Byte av panel i trapphus", set()),
+    ("Ny kabel till tvättstugan", set()),
 ]
 
 ARTAL = [("2002", 2002), ("2019-2020", 2020), ("2008-2010", 2010), ("", None), ("okänt", None)]

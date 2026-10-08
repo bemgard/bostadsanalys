@@ -52,6 +52,8 @@ LITEN_FORENING_GUL_UNDER = 20
 #                inom RENOVERINGAR_HORISONT_AR (None = aldrig röd)
 #   nyckelord  – matchas i början eller slutet av ett ord, skiftlägesokänsligt
 #                ("rörstambyte" träffas av "stambyte", "yttertak" av "tak")
+#   hela_ord   – matchas bara som helt ord (för korta ord som "el", så att
+#                "panel" eller "kabel" inte räknas)
 #   ignorera   – ord som tas bort ur texten innan matchningen för just den byggdelen
 #                (så att "Elstambyte" aldrig räknas som stambyte, bara som el)
 #   undantag   – innehåller texten något av dessa räknas den inte som byggdelen
@@ -63,6 +65,7 @@ BYGGDELAR = {
         "gul_over": 40,
         "rod_over": 50,
         "nyckelord": ["stambyte", "stamrenovering", "relining", "stammar"],
+        "hela_ord": [],
         "ignorera": ["elstambyte", "elstamsbyte"],
         "undantag": [],
     },
@@ -71,6 +74,7 @@ BYGGDELAR = {
         "gul_over": 40,
         "rod_over": None,
         "nyckelord": ["tak", "takbyte", "takomläggning"],
+        "hela_ord": [],
         "ignorera": [],
         "undantag": ["takterrass", "takterass"],
     },
@@ -79,6 +83,7 @@ BYGGDELAR = {
         "gul_over": 40,
         "rod_over": None,
         "nyckelord": ["fasad", "omputsning"],
+        "hela_ord": [],
         "ignorera": [],
         "undantag": [],
     },
@@ -86,14 +91,17 @@ BYGGDELAR = {
         "namn": "El",
         "gul_over": 50,
         "rod_over": None,
-        "nyckelord": ["elstambyte", "elstamsbyte", "elstam", "elcentral", "elinstallation", "elsystem"],
+        "nyckelord": ["elstambyte", "elstamsbyte", "elstam", "elcentral", "el-central",
+                      "elinstallation", "elsystem"],
+        "hela_ord": ["el"],  # t.ex. "Stambyte av VVS och EL"
         "ignorera": [],
         "undantag": [],
     },
 }
 # Åtgärder vars text innehåller något av dessa ord räknas inte som byte av
-# någon byggdel (t.ex. "Stamspolning", "Översyn av stammar", "Målning tak").
-BYGGDELAR_EJ_BYTE = ["spolning", "översyn", "besiktning", "målning"]
+# någon byggdel (t.ex. "Stamspolning", "Översyn av stammar", "Målning tak",
+# "Korrigeringar i stambytet").
+BYGGDELAR_EJ_BYTE = ["spolning", "översyn", "besiktning", "målning", "korrigering"]
 
 # --- Räntebindning ---------------------------------------------------------------
 # Hur stor del av skulden som får ny ränta (villkorsändras) inom horisonten,

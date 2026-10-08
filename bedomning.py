@@ -234,7 +234,8 @@ def byggdelar_i_text(text):
             t = t.replace(ord_, " ")
         if any(u in t for u in del_["undantag"]):
             continue
-        if any(re.search(rf"\b{re.escape(o)}|{re.escape(o)}\b", t) for o in del_["nyckelord"]):
+        if (any(re.search(rf"\b{re.escape(o)}|{re.escape(o)}\b", t) for o in del_["nyckelord"])
+                or any(re.search(rf"\b{re.escape(o)}\b", t) for o in del_.get("hela_ord", []))):
             traffar.add(nyckel)
     return traffar
 
