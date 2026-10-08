@@ -91,12 +91,25 @@ def avrunda(x, decimaler=0):
 # --- Uträkningar (en per nyckeltal) ------------------------------------------
 # Alla returnerar None om något indatavärde saknas.
 
-def total_skuld(data):
+def total_skuld_med_forklaring(data):
+    """(total skuld till kreditinstitut, förklaring). Saknas den ena delen (lång- eller
+    kortfristig) räknas den som 0 – men BARA om summan av lånen i lånenoten är exakt
+    lika med den del som finns. Annars (None, förklaring)."""
     lang = v(data, "skulder_kreditinstitut_langfristiga")
     kort = v(data, "skulder_kreditinstitut_kortfristiga")
-    if lang is None or kort is None:
-        return None
-    return lang + kort
+    if lang is not None and kort is not None:
+        return lang + kort, "långfristiga + kortfristiga skulder"
+    if lang is None and kort is None:
+        return None, "skulder till kreditinstitut saknas"
+    kand, del_ = (lang, "långfristiga") if lang is not None else (kort, "kortfristiga")
+    lan = data.get("lan") or []
+    if lan and all(l.get("belopp") is not None for l in lan) and sum(l["belopp"] for l in lan) == kand:
+        return kand, f"bara {del_} skulder redovisas; lånenoten bekräftar summan"
+    return None, f"bara {del_} skulder redovisas och lånenoten bekräftar inte summan"
+
+
+def total_skuld(data):
+    return total_skuld_med_forklaring(data)[0]
 
 
 def belaning_per_kvm(data):
@@ -704,6 +717,7 @@ def bedom(data, idag):
         "nyckeltal": rader,
         "detaljer": {
             "total_skuld": total_skuld(data),
+            "total_skuld_forklaring": total_skuld_med_forklaring(data)[1],
             "likvida_medel_per_kvm": likvida,
             "stora_renoveringar": atgarder,
             "byggdelar": delar,
