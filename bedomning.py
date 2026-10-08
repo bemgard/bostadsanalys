@@ -162,26 +162,52 @@ def passerade_villkorsandringar(data, idag):
     return sorted(set(datum))
 
 
-def rantebindning(data):
-    """Returnerar (andel av skulden i %, viktad snittränta i %) för lån som
-    villkorsändras inom horisonten. Snitträntan är None om ingen ränta anges.
-    Lån utan villkorsändringsdag räknas som inom horisonten (försiktigt antagande)."""
+def viktad_ranta(lan):
+    """Beloppsviktad snittränta i %, eller None om inget lån har ränta angiven."""
+    med_ranta = [l for l in lan if l.get("rantesats_procent") is not None]
+    vikt = sum(l["belopp"] for l in med_ranta)
+    return sum(l["belopp"] * l["rantesats_procent"] for l in med_ranta) / vikt if vikt else None
+
+
+def rantebindning(data, idag=None):
+    """Lån som villkorsändras inom horisonten från räkenskapsårets slut. Returnerar en dict:
+      andel, snittranta         – alla dessa lån (andel av total skuld i %, viktad ränta i %)
+      andel_kvar, snittranta_kvar – bara de som ännu inte villkorsändrats (datum ≥ idag)
+    Lån vars villkorsändringsdag passerat före idag räknas som redan omförhandlade.
+    Lån utan villkorsändringsdag räknas som inom horisonten och ej omförhandlade (försiktigt).
+    None om skuld, räkenskapsår eller lån saknas."""
     skuld, slut = total_skuld(data), rakenskapsar_slut(data)
     if skuld is None or slut is None:
         return None
     if skuld == 0:
-        return 0.0, None
-    lan = data.get("lan") or []
-    if not lan:
+        return {"andel": 0.0, "snittranta": None, "andel_kvar": 0.0, "snittranta_kvar": None}
+    if not data.get("lan"):
         return None  # skuld finns men inga lån redovisas
 
     inom = lan_inom_horisont(data)
-    andel = sum(l["belopp"] for l in inom) / skuld * 100
+    kvar = [l for l in inom
+            if idag is None or till_datum(l.get("villkorsandringsdag")) is None
+            or till_datum(l.get("villkorsandringsdag")) >= idag]
+    return {
+        "andel": sum(l["belopp"] for l in inom) / skuld * 100,
+        "snittranta": viktad_ranta(inom),
+        "andel_kvar": sum(l["belopp"] for l in kvar) / skuld * 100,
+        "snittranta_kvar": viktad_ranta(kvar),
+    }
 
-    med_ranta = [l for l in inom if l.get("rantesats_procent") is not None]
-    vikt = sum(l["belopp"] for l in med_ranta)
-    snittranta = sum(l["belopp"] * l["rantesats_procent"] for l in med_ranta) / vikt if vikt else None
-    return andel, snittranta
+
+def lag_ranta_och_stor_andel(andel, snittranta):
+    """Röd-villkoret: stor andel av skulden får ny ränta, från låg snittränta."""
+    return (andel > k.RANTEBINDNING_ROD_ANDEL_PROCENT and snittranta is not None
+            and snittranta < k.RANTEBINDNING_ROD_RANTA_MAX_PROCENT)
+
+
+def redan_omforhandlad(resultat):
+    """True om röd-villkoret gäller för alla lån inom horisonten men inte för de som
+    återstår – dvs. de låga räntorna har redan villkorsändrats."""
+    return (resultat is not None
+            and lag_ranta_och_stor_andel(resultat["andel"], resultat["snittranta"])
+            and not lag_ranta_och_stor_andel(resultat["andel_kvar"], resultat["snittranta_kvar"]))
 
 
 def inom_renoveringshorisont(planerat_ar, slutar):
@@ -326,13 +352,15 @@ def farg_avgift(x):
 
 
 def farg_rantebindning(resultat):
+    """Röd bara för lån som ännu inte villkorsändrats. Har de låga räntorna redan
+    omförhandlats blir det gult (fråga vad det blev)."""
     if resultat is None:
         return SAKNAS
-    andel, snittranta = resultat
-    if (andel > k.RANTEBINDNING_ROD_ANDEL_PROCENT and snittranta is not None
-            and snittranta < k.RANTEBINDNING_ROD_RANTA_MAX_PROCENT):
+    if lag_ranta_och_stor_andel(resultat["andel_kvar"], resultat["snittranta_kvar"]):
         return ROD
-    return GUL if andel > k.RANTEBINDNING_GUL_ANDEL_PROCENT else GRON
+    if redan_omforhandlad(resultat) or resultat["andel"] > k.RANTEBINDNING_GUL_ANDEL_PROCENT:
+        return GUL
+    return GRON
 
 
 def farg_renoveringar(atgarder, likvida):
@@ -514,9 +542,11 @@ def bedom(data, idag):
     ))
 
     # Räntebindning
-    resultat = rantebindning(data)
+    resultat = rantebindning(data, idag)
     h = k.RANTEBINDNING_HORISONT_MANADER
-    andel, snitt = resultat if resultat else (None, None)
+    andel = resultat["andel"] if resultat else None
+    snitt = resultat["snittranta"] if resultat else None
+    andel_kvar = resultat["andel_kvar"] if resultat else None
     passerade = passerade_villkorsandringar(data, idag)
     if passerade:
         fraga = (f"Lånen villkorsändrades {', '.join(str(d) for d in passerade)}. "
@@ -529,8 +559,10 @@ def bedom(data, idag):
         f"{tal(andel, 0, '%')} inom {h} mån, snitt {tal(snitt, 2, '%')}" if resultat else "–",
         "–", farg_rantebindning(resultat),
         {GRON: f"Liten del av skulden får ny ränta inom {h} mån.",
-         GUL: f"{tal(andel, 0, '%')} av skulden får ny ränta inom {h} mån.",
-         ROD: f"{tal(andel, 0, '%')} av skulden får ny ränta inom {h} mån, från låg snittränta – risk för kraftigt höjd räntekostnad."},
+         GUL: "Lånen har redan omförhandlats – fråga vilka räntor det blev och hur avgiften påverkats."
+              if redan_omforhandlad(resultat) else f"{tal(andel, 0, '%')} av skulden får ny ränta inom {h} mån.",
+         ROD: f"{tal(andel_kvar, 0, '%')} av skulden får ny ränta inom {h} mån och har ännu inte villkorsändrats, "
+              "från låg snittränta – risk för kraftigt höjd räntekostnad."},
         fraga, varde_tal=avrunda(andel),
     ))
 
