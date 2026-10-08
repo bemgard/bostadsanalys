@@ -322,14 +322,13 @@ def farg_rantebindning(resultat):
     return GUL if andel > k.RANTEBINDNING_GUL_ANDEL_PROCENT else GRON
 
 
-def farg_renoveringar(atgarder, sparande, likvida):
+def farg_renoveringar(atgarder, likvida):
     if atgarder is None:
         return SAKNAS
     if not atgarder:
         return GRON
     svag_ekonomi = (
-        (sparande is not None and sparande < k.RENOVERINGAR_ROD_SPARANDE_MIN)
-        or (likvida is not None and likvida < k.RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN)
+        likvida is not None and likvida < k.RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN
     )
     return ROD if svag_ekonomi else GUL
 
@@ -526,7 +525,7 @@ def bedom(data, idag):
     atgarder = stora_renoveringar(data)
     likvida = likvida_per_kvm(data)
     ar = k.RENOVERINGAR_HORISONT_AR
-    farg = farg_renoveringar(atgarder, sparande, likvida)
+    farg = farg_renoveringar(atgarder, likvida)
     plan_saknas = v(data, "underhallsplan_finns") is not True
     plan_okand = "underhallsplan_finns" not in data  # äldre extraktion utan fältet
     if plan_saknas and farg == GRON:
@@ -543,9 +542,10 @@ def bedom(data, idag):
     rader.append(rad(
         "Renoveringar", f"{len(atgarder)} stora inom {ar} år" if atgarder is not None else "–", "–", farg,
         {GRON: f"Inga stora åtgärder planerade inom {ar} år.",
-         GUL: (f"Stora åtgärder planerade inom {ar} år." if atgarder else f"Inga stora åtgärder planerade inom {ar} år.") + tillagg,
-         ROD: f"Stora åtgärder inom {ar} år och svag ekonomi "
-              f"(sparande {tal(sparande, 0, 'kr/kvm')}, likvida medel {tal(likvida, 0, 'kr/kvm')})." + tillagg},
+         GUL: (f"Stora åtgärder planerade inom {ar} år, kassan räcker (likvida medel {tal(likvida, 0, 'kr/kvm')})."
+               if atgarder else f"Inga stora åtgärder planerade inom {ar} år.") + tillagg,
+         ROD: f"Stora åtgärder inom {ar} år och liten kassa "
+              f"(likvida medel {tal(likvida, 0, 'kr/kvm')}, under {k.RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN} kr/kvm)." + tillagg},
         " ".join(fragor) or None,
         varde_tal=len(atgarder) if atgarder is not None else None,
     ))
@@ -611,8 +611,8 @@ def bedom(data, idag):
     rader.append(rad(
         "Tomträtt", tomtratt_text, "–", farg_tomtratt(tomtratt),
         {GRON: "Marken ägs av föreningen.",
-         GUL: "Marken innehas med tomträtt – avgälden kan höjas.",
-         ROD: "Marken innehas med tomträtt – avgälden kan höjas."},
+         GUL: "Tomträtt – avgälden kan höjas vid omreglering. Fråga när nästa omreglering sker.",
+         ROD: "Tomträtt – avgälden kan höjas vid omreglering. Fråga när nästa omreglering sker."},
         "När omregleras tomträttsavgälden nästa gång, och vad väntas den nya avgälden bli?",
         varde_tal=tomtratt_text,  # text
     ))
@@ -680,8 +680,14 @@ def bedom(data, idag):
             r["kommentar"] = ALDRE_EXTRAKTION
             r["fraga_till_maklare"] = None
 
+    # Rader som inte räknas i utslaget märks, så att det syns i terminal och Excel
+    for r in rader:
+        r["raknas_i_utslag"] = r["nyckeltal"] not in k.UTSLAG_RAKNAS_EJ and r["farg"] != INFO
+        if r["nyckeltal"] in k.UTSLAG_RAKNAS_EJ:
+            r["kommentar"] += " (Påverkar inte utslaget.)"
+
     # Utslag – "saknas" räknas som färgen i SAKNAS_RAKNAS_SOM
-    farger = [k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"] for r in rader]
+    farger = [k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"] for r in rader if r["raknas_i_utslag"]]
     roda, gula = farger.count(ROD), farger.count(GUL)
     if roda >= k.UTSLAG_SORTERA_BORT_MIN_RODA:
         utslag = "SORTERA BORT"
@@ -705,7 +711,8 @@ def bedom(data, idag):
         "utslag": utslag,
         "antal_roda": roda,
         "antal_gula": gula,
-        "antal_saknas": [r["farg"] for r in rader].count(SAKNAS),
+        "antal_saknas": [r["farg"] for r in rader if r["raknas_i_utslag"]].count(SAKNAS),
+        "raknas_ej_i_utslag": [r["nyckeltal"] for r in rader if r["nyckeltal"] in k.UTSLAG_RAKNAS_EJ],
         "fragor_till_maklare": [r["fraga_till_maklare"] for r in rader if r["fraga_till_maklare"]],
     }
 
@@ -715,7 +722,8 @@ def bedom(data, idag):
 def skriv_tabell(resultat):
     rubriker = ["Nyckeltal", "Vårt värde", "Föreningens värde", "Färg", "Kort kommentar"]
     rader = [
-        [r["nyckeltal"], r["vart_varde"], r["foreningens_varde"], "–" if r["farg"] == INFO else r["farg"],
+        [r["nyckeltal"], r["vart_varde"], r["foreningens_varde"],
+         "–" if r["farg"] == INFO else r["farg"] + ("*" if r["nyckeltal"] in k.UTSLAG_RAKNAS_EJ else ""),
          r["kommentar"]]
         for r in resultat["nyckeltal"]
     ]
@@ -758,6 +766,8 @@ def bedom_fil(sokvag: Path, idag: date) -> dict:
     skriv_tabell(resultat)
     print(f"\nUtslag: {resultat['utslag']}  ({resultat['antal_roda']} röda, {resultat['antal_gula']} gula"
           f"{', varav ' + str(resultat['antal_saknas']) + ' saknas' if resultat['antal_saknas'] else ''})")
+    if resultat["raknas_ej_i_utslag"]:
+        print(f"* Räknas inte i utslaget: {', '.join(resultat['raknas_ej_i_utslag'])}")
     print("\nFrågor till mäklaren:")
     for i, fraga in enumerate(resultat["fragor_till_maklare"], 1):
         print(f"  {i}. {fraga}")

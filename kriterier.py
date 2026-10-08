@@ -133,11 +133,10 @@ RENOVERINGAR_STORA_ATGARDER = [
 # En åtgärd vars text innehåller något av dessa ord räknas INTE som stor åtgärd
 # (t.ex. "Översyn tak" eller "Besiktning balkonger").
 RENOVERINGAR_UNDANTAG = ["besiktning", "översyn", "uppföljning", "spolning", "inventering"]
-# gul om någon stor åtgärd finns inom horisonten.
-# röd om stor åtgärd finns OCH
-#   sparande per kvm < RENOVERINGAR_ROD_SPARANDE_MIN
-#   ELLER likvida medel per kvm totalyta < RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN
-RENOVERINGAR_ROD_SPARANDE_MIN = 150
+# gul om någon stor åtgärd finns inom horisonten och kassan räcker.
+# röd om stor åtgärd finns OCH likvida medel per kvm totalyta < RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN.
+# (Sparandet påverkar inte denna rad – det har en egen rad.)
+# Saknas en redovisad underhållsplan blir raden minst gul.
 RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN = 300
 
 # --- Rapportens ålder ------------------------------------------------------------
@@ -165,7 +164,7 @@ GRUNDLAGGNING_FARG = {
 
 # --- Tomträtt --------------------------------------------------------------------
 # Färg om marken innehas med tomträtt (annars ingen flagga)
-TOMTRATT_FARG = "röd"
+TOMTRATT_FARG = "gul"
 
 # --- Revisorn --------------------------------------------------------------------
 # Färg om revisorn gör en anmärkning / avvikande uttalande
@@ -185,6 +184,9 @@ KONTROLLRAKNING_TOLERANS_PROCENT = 10
 SAKNAS_RAKNAS_SOM = "gul"
 
 # --- Utslag ----------------------------------------------------------------------
+# Rader som visas och färgas men INTE räknas i utslaget (t.ex. sökfilter som byggår).
+UTSLAG_RAKNAS_EJ = ["Byggår"]
+
 # SORTERA BORT: minst UTSLAG_SORTERA_BORT_MIN_RODA röda
 # AVVAKTA:      minst UTSLAG_AVVAKTA_MIN_RODA röd ELLER minst UTSLAG_AVVAKTA_MIN_GULA gula
 # GÅ VIDARE:    annars

@@ -116,7 +116,11 @@ def bygg_oversikt(ark, bedomningar, annonser):
     fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula"]
     forsta_forening = len(annonskolumner) + 1  # kolumnnummer där föreningens kolumner börjar
     # Okänt nyckeltal (finns inte i KOLUMNER) får sitt namn som rubrik och inget talformat
-    ark.append([r for r, _ in annonskolumner] + fasta + [KOLUMNER.get(n, (n, None))[0] for n in nyckeltal])
+    # Rader som inte räknas i utslaget (kriterier.UTSLAG_RAKNAS_EJ) märks i rubriken
+    ark.append([r for r, _ in annonskolumner] + fasta + [
+        KOLUMNER.get(n, (n, None))[0] + (" – påverkar inte utslaget" if n in k.UTSLAG_RAKNAS_EJ else "")
+        for n in nyckeltal
+    ])
 
     for a, b in rader_for_oversikt(bedomningar, annonser):
         # Annonsdelen (tom om föreningen analyserats utan annons)
