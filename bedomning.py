@@ -15,6 +15,26 @@ from pathlib import Path
 import kriterier as k
 
 GRON, GUL, ROD, SAKNAS = "grön", "gul", "röd", "saknas"
+ALDRE_EXTRAKTION = "Extraktionen är gjord med en äldre version – kör om med --force."
+
+# Vilka extraktionsfält varje nyckeltal bygger på. Saknas ett fält helt i JSON-filen
+# är extraktionen gjord med en äldre version (inte att uppgiften saknas i årsredovisningen).
+BEROENDEN = {
+    "Belåning per kvm": ("skulder_kreditinstitut_langfristiga", "skulder_kreditinstitut_kortfristiga", "total_yta_kvm"),
+    "Räntekänslighet": ("skulder_kreditinstitut_langfristiga", "skulder_kreditinstitut_kortfristiga", "arsavgifter_bostader"),
+    "Sparande per kvm": ("sparande_per_kvm",),
+    "Avgift per kvm": ("arsavgifter_bostader", "bostadsyta_kvm"),
+    "Energikostnad per kvm": ("energikostnad_per_kvm",),
+    "Räntebindning": ("lan", "rakenskapsar"),
+    "Renoveringar": ("planerat_underhall",),
+    "Byggdelar": ("utfort_underhall",),
+    "Grundläggning": ("grundlaggning",),
+    "Rapportens ålder": ("rakenskapsar",),
+    "Tomträtt": ("tomtratt",),
+    "Äkta förening": ("akta_forening",),
+    "Föreningens storlek": ("antal_bostadsratter",),
+    "Revisorn": ("revisorns_anmarkning", "revisorns_upplysning"),
+}
 OUTPUT_DIR = Path("data/bedomning")
 
 
@@ -194,6 +214,55 @@ def rapportens_alder_manader(data, idag):
     return None if slut is None else manader_mellan(slut, idag)
 
 
+def senaste_ar(text):
+    """Senaste årtalet i en text: "2019-2020" → 2020, "2002" → 2002. None om inget årtal finns."""
+    ar = [int(a) for a in re.findall(r"\d{4}", text or "")]
+    return max(ar) if ar else None
+
+
+def byggdelar_i_text(text):
+    """Vilka byggdelar (nycklar i k.BYGGDELAR) en åtgärdstext gäller.
+    "Elstambyte" → {"el"}, "Rörstambyte - Omfattar badrum" → {"stambyte"},
+    "Stamspolning - Översyn av stammar" → set() (spolning/översyn är inget byte)."""
+    text = (text or "").lower()
+    if any(ord_ in text for ord_ in k.BYGGDELAR_EJ_BYTE):
+        return set()
+    traffar = set()
+    for nyckel, del_ in k.BYGGDELAR.items():
+        t = text
+        for ord_ in del_["ignorera"]:
+            t = t.replace(ord_, " ")
+        if any(u in t for u in del_["undantag"]):
+            continue
+        if any(re.search(rf"\b{re.escape(o)}|{re.escape(o)}\b", t) for o in del_["nyckelord"]):
+            traffar.add(nyckel)
+    return traffar
+
+
+def byggdelar(data, idag):
+    """Senaste åtgärd och ålder per byggdel ur utfort_underhall, samt om en ny åtgärd
+    är planerad inom renoveringshorisonten. None om fältet saknas (äldre extraktion).
+    Returnerar {nyckel: {"ar", "alder", "atgard", "planerad"}}; ar/alder är None om okänd."""
+    utfort = data.get("utfort_underhall")
+    if not isinstance(utfort, list):
+        return None
+    resultat = {n: {"ar": None, "alder": None, "atgard": None, "planerad": False} for n in k.BYGGDELAR}
+    for post in utfort:
+        ar = senaste_ar(post.get("ar"))
+        if ar is None:
+            continue
+        for nyckel in byggdelar_i_text(post.get("atgard")):
+            if resultat[nyckel]["ar"] is None or ar > resultat[nyckel]["ar"]:
+                resultat[nyckel].update(ar=ar, alder=idag.year - ar, atgard=post.get("atgard"))
+    # Planerade åtgärder inom horisonten (samma regel som för renoveringar)
+    slut = rakenskapsar_slut(data)
+    for post in data.get("planerat_underhall") or []:
+        if inom_renoveringshorisont(post.get("planerat_ar"), slut.year if slut else None):
+            for nyckel in byggdelar_i_text(post.get("atgard")):
+                resultat[nyckel]["planerad"] = True
+    return resultat
+
+
 # --- Färger enligt kriterier.py ----------------------------------------------
 
 def farg_belaning(x):
@@ -252,6 +321,50 @@ def farg_alder(manader):
     if manader is None:
         return SAKNAS
     return GUL if manader > k.RAPPORTENS_ALDER_GUL_MANADER else GRON
+
+
+def farg_byggdel(nyckel, info):
+    """Färg för en byggdel. Okänd (ingen åtgärd i historiken) = gul."""
+    granser = k.BYGGDELAR[nyckel]
+    if info["alder"] is None:
+        return GUL
+    if granser["rod_over"] is not None and info["alder"] > granser["rod_over"] and not info["planerad"]:
+        return ROD
+    return GUL if info["alder"] > granser["gul_over"] else GRON
+
+
+def farg_byggdelar(status):
+    """Sämsta färgen bland byggdelarna."""
+    if status is None:
+        return SAKNAS
+    farger = [farg_byggdel(n, info) for n, info in status.items()]
+    return ROD if ROD in farger else GUL if GUL in farger else GRON
+
+
+def farg_grundlaggning(post):
+    if not isinstance(post, dict) or post.get("varde") is None:
+        return SAKNAS
+    if post["varde"] is False:
+        return GRON
+    return k.GRUNDLAGGNING_FARG.get(post.get("status") or "okänd", GUL)
+
+
+def farg_akta(akta):
+    if akta is None:
+        return SAKNAS
+    return GRON if akta else k.OAKTA_FORENING_FARG
+
+
+def farg_energikostnad(x):
+    if x is None:
+        return SAKNAS
+    return GUL if x > k.ENERGIKOSTNAD_PER_KVM_GUL_OVER else GRON
+
+
+def farg_storlek(antal):
+    if antal is None:
+        return SAKNAS
+    return GUL if antal < k.LITEN_FORENING_GUL_UNDER else GRON
 
 
 def farg_tomtratt(tomtratt):
@@ -354,6 +467,17 @@ def bedom(data, idag):
         avvikelse_procent(x, f), varde_tal=avrunda(x),
     ))
 
+    # Energikostnad per kvm (föreningens egen siffra)
+    energi = v(data, "energikostnad_per_kvm")
+    rader.append(rad(
+        "Energikostnad per kvm", tal(energi, 0, "kr/kvm"), tal(energi, 0, "kr/kvm"), farg_energikostnad(energi),
+        {GRON: "Normal energikostnad.",
+         GUL: f"Hög energikostnad (över {k.ENERGIKOSTNAD_PER_KVM_GUL_OVER} kr/kvm)."},
+        f"Energikostnaden är {tal(energi, 0, 'kr/kvm')}. Finns planer på energibesparande åtgärder, "
+        "och hur har kostnaden utvecklats de senaste åren?",
+        varde_tal=avrunda(energi),
+    ))
+
     # Räntebindning
     resultat = rantebindning(data)
     h = k.RANTEBINDNING_HORISONT_MANADER
@@ -375,19 +499,77 @@ def bedom(data, idag):
         fraga, varde_tal=avrunda(andel),
     ))
 
-    # Renoveringar
+    # Renoveringar – utan redovisad underhållsplan blir raden minst gul
     atgarder = stora_renoveringar(data)
     likvida = likvida_per_kvm(data)
     ar = k.RENOVERINGAR_HORISONT_AR
+    farg = farg_renoveringar(atgarder, sparande, likvida)
+    plan_saknas = v(data, "underhallsplan_finns") is not True
+    plan_okand = "underhallsplan_finns" not in data  # äldre extraktion utan fältet
+    if plan_saknas and farg == GRON:
+        farg = GUL
+    if plan_okand:
+        tillagg = " Underhållsplan okänd – " + ALDRE_EXTRAKTION[0].lower() + ALDRE_EXTRAKTION[1:]
+    else:
+        tillagg = " Ingen underhållsplan redovisas." if plan_saknas else ""
+    fragor = []
+    if atgarder:
+        fragor.append(f"Planerade stora åtgärder: {'; '.join(atgarder)}. Vad beräknas de kosta och hur ska de finansieras?")
+    if plan_saknas and not plan_okand:
+        fragor.append("Årsredovisningen redovisar ingen underhållsplan. Finns en aktuell plan, och hur långt fram sträcker den sig?")
     rader.append(rad(
-        "Renoveringar", f"{len(atgarder)} stora inom {ar} år" if atgarder is not None else "–", "–",
-        farg_renoveringar(atgarder, sparande, likvida),
+        "Renoveringar", f"{len(atgarder)} stora inom {ar} år" if atgarder is not None else "–", "–", farg,
         {GRON: f"Inga stora åtgärder planerade inom {ar} år.",
-         GUL: f"Stora åtgärder planerade inom {ar} år.",
+         GUL: (f"Stora åtgärder planerade inom {ar} år." if atgarder else f"Inga stora åtgärder planerade inom {ar} år.") + tillagg,
          ROD: f"Stora åtgärder inom {ar} år och svag ekonomi "
-              f"(sparande {tal(sparande, 0, 'kr/kvm')}, likvida medel {tal(likvida, 0, 'kr/kvm')})."},
-        f"Planerade stora åtgärder: {'; '.join(atgarder or [])}. Vad beräknas de kosta och hur ska de finansieras?",
+              f"(sparande {tal(sparande, 0, 'kr/kvm')}, likvida medel {tal(likvida, 0, 'kr/kvm')})." + tillagg},
+        " ".join(fragor) or None,
         varde_tal=len(atgarder) if atgarder is not None else None,
+    ))
+
+    # Byggdelar – ålder sedan senaste åtgärd, färg = sämsta byggdelen
+    delar = byggdelar(data, idag)
+    if delar is not None:
+        beskrivning = ", ".join(
+            f"{k.BYGGDELAR[n]['namn']} {i['ar']} ({i['alder']} år)" if i["ar"] else f"{k.BYGGDELAR[n]['namn']} okänd"
+            for n, i in delar.items()
+        )
+        flaggade = [
+            f"{k.BYGGDELAR[n]['namn']}: senast åtgärdad {i['ar']} ({i['alder']} år sedan)" if i["ar"]
+            else f"{k.BYGGDELAR[n]['namn']}: ingen åtgärd i underhållshistoriken"
+            for n, i in delar.items() if farg_byggdel(n, i) != GRON
+        ]
+        kanda = [(i["alder"], k.BYGGDELAR[n]["namn"]) for n, i in delar.items() if i["alder"] is not None]
+        aldst = max(kanda) if kanda else None
+    else:
+        beskrivning, flaggade, aldst = "", [], None
+    rader.append(rad(
+        "Byggdelar", f"äldst {aldst[0]} år ({aldst[1]})" if aldst else "–", "–", farg_byggdelar(delar),
+        {GRON: beskrivning + ".", GUL: beskrivning + ".", ROD: beskrivning + "."},
+        f"{'; '.join(flaggade)}. När gjordes senaste större åtgärd, och vad planeras?",
+        varde_tal=aldst[0] if aldst else None,
+    ))
+
+    # Grundläggning
+    grund = data.get("grundlaggning") if isinstance(data.get("grundlaggning"), dict) else {}
+    farg = farg_grundlaggning(grund)
+    status = grund.get("status")
+    grund_text = grund.get("beskrivning") or ""
+    if farg == SAKNAS:
+        vart = "–"
+    elif grund.get("varde") is False:
+        vart = "Nej"
+    else:
+        vart = status or "okänd"
+    rader.append(rad(
+        "Grundläggning", vart, "–", farg,
+        {GRON: f"Grundproblem åtgärdat ({senaste_ar(grund_text) or 'år okänt'}): {grund_text}"
+               if grund.get("varde") else "Inga problem med grunden nämns.",
+         GUL: f"Grundproblem nämns, status okänd: {grund_text}",
+         ROD: f"Grundproblem {status}: {grund_text}"},
+        f"Årsredovisningen nämner problem med grunden ({grund_text}). Vad är status, vad kostar åtgärden "
+        "och hur påverkar den avgiften?",
+        varde_tal=None if farg == SAKNAS else vart,  # text
     ))
 
     # Rapportens ålder
@@ -412,6 +594,29 @@ def bedom(data, idag):
         varde_tal=tomtratt_text,  # text
     ))
 
+    # Äkta förening
+    akta = v(data, "akta_forening")
+    akta_text = {True: "Ja", False: "Nej"}.get(akta, "–")
+    rader.append(rad(
+        "Äkta förening", akta_text, "–", farg_akta(akta),
+        {GRON: "Äkta bostadsrättsförening.",
+         GUL: "Oäkta bostadsrättsförening – kan ge skattekonsekvenser för medlemmarna.",
+         ROD: "Oäkta bostadsrättsförening – kan ge skattekonsekvenser för medlemmarna."},
+        "Föreningen är oäkta. Vilka skattekonsekvenser får det för mig som köpare, och planerar föreningen att bli äkta?",
+        varde_tal=akta_text,  # text
+    ))
+
+    # Föreningens storlek
+    antal = v(data, "antal_bostadsratter")
+    rader.append(rad(
+        "Föreningens storlek", tal(antal, 0, "bostadsrätter"), "–", farg_storlek(antal),
+        {GRON: "Tillräckligt många att dela kostnader och styrelsearbete.",
+         GUL: f"Liten förening (under {k.LITEN_FORENING_GUL_UNDER} bostadsrätter) – större kostnader slår hårt."},
+        f"Föreningen har bara {tal(antal, 0)} bostadsrätter. Hur fungerar styrelsearbetet, och hur skulle "
+        "en stor oväntad kostnad hanteras?",
+        varde_tal=antal,
+    ))
+
     # Revisorn
     anmarkning, upplysning = v(data, "revisorns_anmarkning"), v(data, "revisorns_upplysning")
     farg = farg_revisorn(anmarkning, upplysning)
@@ -425,6 +630,12 @@ def bedom(data, idag):
         else "Revisorn lämnar en upplysning av särskild betydelse. Vad gäller den och vad gör styrelsen åt saken?",
         varde_tal=vart,  # text
     ))
+
+    # Saknas uppgiften för att extraktionen är äldre än fältet? Då ska inte mäklaren få frågan.
+    for r in rader:
+        if r["farg"] == SAKNAS and any(f not in data for f in BEROENDEN.get(r["nyckeltal"], ())):
+            r["kommentar"] = ALDRE_EXTRAKTION
+            r["fraga_till_maklare"] = None
 
     # Utslag – "saknas" räknas som färgen i SAKNAS_RAKNAS_SOM
     farger = [k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"] for r in rader]
@@ -446,6 +657,7 @@ def bedom(data, idag):
             "total_skuld": total_skuld(data),
             "likvida_medel_per_kvm": likvida,
             "stora_renoveringar": atgarder,
+            "byggdelar": delar,
         },
         "utslag": utslag,
         "antal_roda": roda,

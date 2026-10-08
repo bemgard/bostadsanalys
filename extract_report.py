@@ -175,6 +175,49 @@ SCHEMA_PROPERTIES = {
         "required": ["varde", "beskrivning", "sida"],
         "additionalProperties": False,
     },
+    "akta_forening": falt(
+        "boolean",
+        "true om föreningen anges vara en äkta bostadsrättsförening (privatbostadsföretag), "
+        "false om den anges vara oäkta. null om det inte framgår.",
+    ),
+    "underhallsplan_finns": falt(
+        "boolean",
+        "true om årsredovisningen anger att föreningen har en underhållsplan, false om den anger att "
+        "plan saknas. null om det inte nämns.",
+    ),
+    "underhallsplan_till_ar": falt(
+        "integer",
+        "Det år underhållsplanen sträcker sig till, så som det står (t.ex. 2053). null om det inte anges.",
+    ),
+    "utfort_underhall": lista(
+        {
+            "atgard": {"type": "string"},
+            "ar": nullable("string"),
+        },
+        "ALLA utförda (historiska) underhållsåtgärder som årsredovisningen listar, en post per åtgärd. "
+        "atgard med dokumentets egen formulering, ar exakt som det står (t.ex. '2002' eller '2019-2020'). "
+        "Tolka, sammanfatta eller slå inte ihop något. Tom lista om inget anges.",
+    ),
+    "grundlaggning": {
+        "type": "object",
+        "description": "Om årsredovisningen nämner problem med byggnadens grund: grundförstärkning, sättningar, "
+        "pålar (t.ex. rötskadade träpålar) eller liknande – historiskt, pågående eller planerat. Gäller "
+        "byggnadens grund, inte t.ex. markarbeten eller beläggning på gården. varde = false om inget sådant "
+        "nämns. beskrivning = kort text om vad som nämns (null om inget). status = om problemet är "
+        "\"planerad\" (åtgärd planerad), \"pågående\" (pågår eller ej åtgärdat), \"åtgärdad\" (redan "
+        "åtgärdat) eller \"okänd\" (framgår inte); null om varde är false.",
+        "properties": {
+            "varde": nullable("boolean"),
+            "beskrivning": nullable("string"),
+            "status": {"anyOf": [
+                {"type": "string", "enum": ["planerad", "pågående", "åtgärdad", "okänd"]},
+                {"type": "null"},
+            ]},
+            "sida": nullable("integer"),
+        },
+        "required": ["varde", "beskrivning", "status", "sida"],
+        "additionalProperties": False,
+    },
 }
 
 TOOL = {
@@ -205,7 +248,10 @@ Regler:
 - Revisorns upplysning: varde = true om revisionsberättelsen innehåller en "upplysning av särskild betydelse"
   eller motsvarande upplysning som inte är en anmärkning eller ett modifierat uttalande. En sådan upplysning
   ska INTE påverka revisorns anmärkning. beskrivning = kort text om upplysningen (null om ingen finns).
-- Saknas revisionsberättelsen helt: varde = null i båda revisorsfälten."""
+- Saknas revisionsberättelsen helt: varde = null i båda revisorsfälten.
+- Utfört underhåll: ta med VARJE åtgärd i föreningens historik över utfört underhåll, även gamla.
+  Skriv av åtgärd och år ordagrant; slå inte ihop, förkorta eller tolka.
+- Grundläggning: bara byggnadens grund (grundförstärkning, sättningar, pålar o.d.), inte markarbeten på gården."""
 
 
 # --- Hjälpfunktioner ---------------------------------------------------------

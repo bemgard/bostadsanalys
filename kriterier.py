@@ -21,8 +21,8 @@ RANTEKANSLIGHET_PROCENT_GUL_MAX = 10
 
 # --- Sparande per kvm ------------------------------------------------------------
 # Föreningens egen redovisade siffra för sparande per kvm totalyta (kr/kvm).
-# grön ≥ 200, gul ≥ 150, röd < 150
-SPARANDE_PER_KVM_GRON_MIN = 200
+# grön ≥ 250, gul ≥ 150, röd < 150
+SPARANDE_PER_KVM_GRON_MIN = 250
 SPARANDE_PER_KVM_GUL_MIN = 150
 
 # --- Avgift per kvm --------------------------------------------------------------
@@ -30,6 +30,70 @@ SPARANDE_PER_KVM_GUL_MIN = 150
 # grön mellan 450 och 850 (inklusive gränserna), annars gul. Aldrig röd.
 AVGIFT_PER_KVM_GRON_MIN = 450
 AVGIFT_PER_KVM_GRON_MAX = 850
+
+# --- Energikostnad per kvm -------------------------------------------------------
+# Föreningens redovisade energikostnad (el + värme + vatten) per kvm totalyta.
+# gul om över detta, annars grön. Aldrig röd.
+ENERGIKOSTNAD_PER_KVM_GUL_OVER = 250
+
+# --- Föreningens storlek ---------------------------------------------------------
+# gul om föreningen har färre bostadsrätter än detta (få som delar på kostnader
+# och styrelsearbete), annars grön. Aldrig röd.
+LITEN_FORENING_GUL_UNDER = 20
+
+# --- Byggdelar -------------------------------------------------------------------
+# Ålder på viktiga byggdelar, räknad från senaste utförda åtgärd i föreningens
+# underhållshistorik till dagens datum (--idag).
+#
+# Per byggdel:
+#   namn       – visas i tabellen
+#   gul_over   – gul om åldern i år är större än detta
+#   rod_over   – röd om åldern är större än detta OCH ingen sådan åtgärd är planerad
+#                inom RENOVERINGAR_HORISONT_AR (None = aldrig röd)
+#   nyckelord  – matchas i början eller slutet av ett ord, skiftlägesokänsligt
+#                ("rörstambyte" träffas av "stambyte", "yttertak" av "tak")
+#   ignorera   – ord som tas bort ur texten innan matchningen för just den byggdelen
+#                (så att "Elstambyte" aldrig räknas som stambyte, bara som el)
+#   undantag   – innehåller texten något av dessa räknas den inte som byggdelen
+#                (t.ex. "takterrass" är inte taket)
+# Byggdel som inte finns i historiken alls räknas som "okänd" (gul).
+BYGGDELAR = {
+    "stambyte": {
+        "namn": "Stambyte (vatten/avlopp)",
+        "gul_over": 40,
+        "rod_over": 50,
+        "nyckelord": ["stambyte", "stamrenovering", "relining", "stammar"],
+        "ignorera": ["elstambyte", "elstamsbyte"],
+        "undantag": [],
+    },
+    "tak": {
+        "namn": "Tak",
+        "gul_over": 40,
+        "rod_over": None,
+        "nyckelord": ["tak", "takbyte", "takomläggning"],
+        "ignorera": [],
+        "undantag": ["takterrass", "takterass"],
+    },
+    "fasad": {
+        "namn": "Fasad",
+        "gul_over": 40,
+        "rod_over": None,
+        "nyckelord": ["fasad", "omputsning"],
+        "ignorera": [],
+        "undantag": [],
+    },
+    "el": {
+        "namn": "El",
+        "gul_over": 50,
+        "rod_over": None,
+        "nyckelord": ["elstambyte", "elstamsbyte", "elstam", "elcentral", "elinstallation", "elsystem"],
+        "ignorera": [],
+        "undantag": [],
+    },
+}
+# Åtgärder vars text innehåller något av dessa ord räknas inte som byte av
+# någon byggdel (t.ex. "Stamspolning", "Översyn av stammar", "Målning tak").
+BYGGDELAR_EJ_BYTE = ["spolning", "översyn", "besiktning", "målning"]
 
 # --- Räntebindning ---------------------------------------------------------------
 # Hur stor del av skulden som får ny ränta (villkorsändras) inom horisonten,
@@ -71,6 +135,20 @@ RENOVERINGAR_ROD_LIKVIDA_PER_KVM_MIN = 300
 # --- Rapportens ålder ------------------------------------------------------------
 # gul om räkenskapsårets slut ligger mer än så här många månader bakåt i tiden
 RAPPORTENS_ALDER_GUL_MANADER = 15
+
+# --- Äkta förening ---------------------------------------------------------------
+# Färg om föreningen är oäkta (skattekonsekvenser för medlemmarna); äkta = grön
+OAKTA_FORENING_FARG = "röd"
+
+# --- Grundläggning ---------------------------------------------------------------
+# Färg per status när årsredovisningen nämner problem med byggnadens grund.
+# Inga grundproblem nämnda = grön.
+GRUNDLAGGNING_FARG = {
+    "planerad": "röd",
+    "pågående": "röd",
+    "okänd": "gul",
+    "åtgärdad": "grön",
+}
 
 # --- Tomträtt --------------------------------------------------------------------
 # Färg om marken innehas med tomträtt (annars ingen flagga)
