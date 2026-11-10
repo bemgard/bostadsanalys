@@ -119,6 +119,20 @@ def belaning_per_kvm(data):
     return skuld / yta
 
 
+def skuld_per_kvm_bostadsratt(data):
+    """(skuld per kvm bostadsrättsyta, källa). Det är bostadsrättsinnehavarna som bär
+    föreningens skuld, så det här är måttet för en köpares skuldandel (lokaler och
+    hyresrätter räknas inte in i ytan). Egen uträkning i första hand; saknas indata
+    används föreningens redovisade siffra. (None, förklaring) om båda saknas."""
+    skuld, yta = total_skuld(data), v(data, "bostadsyta_kvm")
+    if skuld is not None and yta:
+        return skuld / yta, "egen uträkning (skuld / bostadsrättsyta)"
+    foreningens = v(data, "skuldsattning_per_kvm_bostadsratt")
+    if foreningens is not None:
+        return foreningens, "föreningens redovisade siffra"
+    return None, "skuld eller bostadsrättsyta saknas"
+
+
 def rantekanslighet_procent(data):
     skuld, avgifter = total_skuld(data), v(data, "arsavgifter_bostader")
     if skuld is None or not avgifter:
@@ -755,6 +769,10 @@ def bedom(data, idag):
             "total_skuld": total_skuld(data),
             "total_skuld_forklaring": total_skuld_med_forklaring(data)[1],
             "likvida_medel_per_kvm": likvida,
+            "skuld_per_kvm_bostadsratt": avrunda(skuld_per_kvm_bostadsratt(data)[0]),
+            "skuld_per_kvm_bostadsratt_kalla": skuld_per_kvm_bostadsratt(data)[1],
+            "skuld_per_kvm_bostadsratt_avvikelse_procent": avrunda(avvikelse_procent(
+                skuld_per_kvm_bostadsratt(data)[0], v(data, "skuldsattning_per_kvm_bostadsratt")), 1),
             "stora_renoveringar": atgarder,
             "byggdelar": delar,
         },

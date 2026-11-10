@@ -140,10 +140,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
         a = a or {}
         pris, kvm = a.get("pris"), a.get("kvm")
         # Skuldjusterat pris: pris + lägenhetens andel av föreningens skuld (se lagenhet.py)
-        belaning = None
-        if b is not None:
-            belaning = next((r.get("varde_tal") for r in b["nyckeltal"] if r["nyckeltal"] == "Belåning per kvm"), None)
-        skuldjusterat = skuldjusterat_pris(pris, kvm, belaning)
+        skuld_per_kvm = (b or {}).get("detaljer", {}).get("skuld_per_kvm_bostadsratt")
+        skuldjusterat = skuldjusterat_pris(pris, kvm, skuld_per_kvm)
         annonsdel = [a.get("adress") or a.get("annons_url"), pris, a.get("avgift"), a.get("rum"), kvm,
                      per_kvm(pris, kvm), skuldjusterat, per_kvm(skuldjusterat, kvm)]
 

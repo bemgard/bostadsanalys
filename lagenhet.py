@@ -2,21 +2,20 @@
 Nyckeltal för själva lägenheten (annonsen), inte bara föreningen.
 
 Skuldjusterat pris = pris + lägenhetens andel av föreningens skuld, uppskattad som
-boarea × föreningens belåning per kvm. Det gör annonser i föreningar med olika
-belåning jämförbara: en billig lägenhet i en högt belånad förening kan i praktiken
-vara dyrare än en dyrare lägenhet i en skuldfri.
+boarea × föreningens skuld per kvm BOSTADSRÄTTSYTA (bedomning.skuld_per_kvm_bostadsratt).
+Det är bostadsrättsinnehavarna som bär skulden – lokaler och hyresrätter gör det inte –
+så ytan är bostadsrätternas, inte totalytan.
 
-Uppskattningen förutsätter att skulden fördelas per kvm. I verkligheten fördelas
-den efter andelstal, och belåningen per kvm räknas på total yta (inkl. lokaler),
-så siffran är ett jämförelsetal, inte en exakt skuldandel.
+Kvarvarande förenkling: skulden fördelas i verkligheten efter andelstal, inte exakt
+per kvm. Andelstalet står inte i årsredovisningen.
 """
 
 
-def skuldjusterat_pris(pris, kvm, belaning_per_kvm):
-    """Pris + kvm × belåning per kvm, avrundat till hela kronor. None om något saknas."""
-    if pris is None or not kvm or belaning_per_kvm is None:
+def skuldjusterat_pris(pris, kvm, skuld_per_kvm):
+    """Pris + kvm × skuld per kvm bostadsrättsyta, avrundat till hela kronor. None om något saknas."""
+    if pris is None or not kvm or skuld_per_kvm is None:
         return None
-    return round(pris + kvm * belaning_per_kvm)
+    return round(pris + kvm * skuld_per_kvm)
 
 
 def per_kvm(belopp, kvm):
