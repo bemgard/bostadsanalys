@@ -14,6 +14,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import kriterier as k
+from lagenhet import per_kvm, skuldjusterat_pris
 
 BEDOMNING_DIR = Path("data/bedomning")
 ANNONSER_FIL = Path("data/annonser.json")
@@ -123,7 +124,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
 
     # Annonskolumner: (rubrik, talformat)
     annonskolumner = [("Adress", None), ("Pris (kr)", "#,##0"), ("Avgift (kr/mån)", "#,##0"),
-                      ("Rum", None), ("Boarea (kvm)", None), ("Pris per kvm (kr)", "#,##0")]
+                      ("Rum", None), ("Boarea (kvm)", None), ("Pris per kvm (kr)", "#,##0"),
+                      ("Skuldjusterat pris (kr)", "#,##0"), ("Skuldjusterat pris per kvm (kr)", "#,##0")]
     fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula"]
     forsta_forening = len(annonskolumner) + 1  # kolumnnummer där föreningens kolumner börjar
     # Okänt nyckeltal (finns inte i KOLUMNER) får sitt namn som rubrik och inget talformat
@@ -137,8 +139,13 @@ def bygg_oversikt(ark, bedomningar, annonser):
         # Annonsdelen (tom om föreningen analyserats utan annons)
         a = a or {}
         pris, kvm = a.get("pris"), a.get("kvm")
-        pris_per_kvm = round(pris / kvm) if pris and kvm else None
-        annonsdel = [a.get("adress") or a.get("annons_url"), pris, a.get("avgift"), a.get("rum"), kvm, pris_per_kvm]
+        # Skuldjusterat pris: pris + lägenhetens andel av föreningens skuld (se lagenhet.py)
+        belaning = None
+        if b is not None:
+            belaning = next((r.get("varde_tal") for r in b["nyckeltal"] if r["nyckeltal"] == "Belåning per kvm"), None)
+        skuldjusterat = skuldjusterat_pris(pris, kvm, belaning)
+        annonsdel = [a.get("adress") or a.get("annons_url"), pris, a.get("avgift"), a.get("rum"), kvm,
+                     per_kvm(pris, kvm), skuldjusterat, per_kvm(skuldjusterat, kvm)]
 
         # Föreningsdelen (tom om annonsens förening saknar bedömning)
         if b is None:
