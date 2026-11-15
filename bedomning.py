@@ -26,6 +26,7 @@ BEROENDEN = {
     "Räntekänslighet": ("skulder_kreditinstitut_langfristiga", "skulder_kreditinstitut_kortfristiga", "arsavgifter_bostader"),
     "Sparande per kvm": ("sparande_per_kvm",),
     "Avgift per kvm": ("arsavgifter_bostader", "bostadsyta_kvm"),
+    "Avgiftshöjningar": ("genomforda_avgiftshojningar", "planerade_avgiftshojningar", "rakenskapsar"),
     "Energikostnad per kvm": ("energikostnad_per_kvm",),
     "Räntebindning": ("lan", "rakenskapsar"),
     "Renoveringar": ("planerat_underhall",),
@@ -149,6 +150,55 @@ def avgift_per_kvm(data):
     if avgifter is None or not yta:
         return None
     return avgifter / yta
+
+
+def sammanlagd_procent(procentsatser):
+    """Höjningar räknade med ränta-på-ränta: [10, 10] → 21.0. Tom lista → 0."""
+    faktor = 1.0
+    for p in procentsatser:
+        faktor *= 1 + p / 100
+    return (faktor - 1) * 100
+
+
+def avgiftshojningar(data, idag):
+    """Avgiftshöjningar sorterade efter datum i förhållande till idag. None om fälten saknas
+    (äldre extraktion) eller räkenskapsåret saknas. Returnerar en dict:
+      kommande         – [(procent, datum)] som träder i kraft efter idag, eller beslutade utan datum
+      kommande_procent – de kommande höjningarna med känt datum och känd storlek, sammanlagt (%)
+      kommande_osaker  – True om någon kommande höjning saknar datum eller storlek
+      senaste          – [(procent, datum)] som trätt i kraft inom historikfönstret före idag
+      senaste_procent  – de senaste höjningarna sammanlagt (%)
+    En genomförd höjning utan datum antas ha skett vid räkenskapsårets slut. En beslutad
+    höjning utan datum räknas som kommande (den kan redan ha trätt i kraft – fråga)."""
+    genomforda, planerade = data.get("genomforda_avgiftshojningar"), data.get("planerade_avgiftshojningar")
+    slut = rakenskapsar_slut(data)
+    if not isinstance(genomforda, list) or not isinstance(planerade, list) or slut is None:
+        return None
+    fonster_start = lagg_till_manader(idag, -k.AVGIFTSHOJNING_HISTORIK_MANADER)
+    kommande, senaste = [], []
+    for post, beslutad in [(p, False) for p in genomforda] + [(p, True) for p in planerade]:
+        procent, datum = post.get("procent"), till_datum(post.get("fran_datum"))
+        if datum is None and beslutad:
+            kommande.append((procent, None))
+            continue
+        # Saknat datum på en genomförd höjning: placera den vid räkenskapsårets slut,
+        # men visa datumet som okänt (det är ett antagande, inte en uppgift)
+        placering = datum or slut
+        if placering > idag:
+            kommande.append((procent, datum))
+        elif placering > fonster_start:
+            senaste.append((procent, datum))
+    kommande.sort(key=lambda h: (h[1] is None, h[1] or idag))
+    senaste.sort(key=lambda h: h[1] or slut)
+    return {
+        "kommande": kommande,
+        # Bara daterade höjningar: en beslutad höjning utan datum har ofta redan trätt i kraft
+        # (rapporten kan vara över ett år gammal) – den gör raden gul via kommande_osaker.
+        "kommande_procent": sammanlagd_procent([p for p, d in kommande if p is not None and d is not None]),
+        "kommande_osaker": any(p is None or d is None for p, d in kommande),
+        "senaste": senaste,
+        "senaste_procent": sammanlagd_procent([p for p, _ in senaste if p is not None]),
+    }
 
 
 def lan_inom_horisont(data, idag=None):
@@ -368,6 +418,25 @@ def farg_avgift(x):
     return GRON if k.AVGIFT_PER_KVM_GRON_MIN <= x <= k.AVGIFT_PER_KVM_GRON_MAX else GUL
 
 
+def farg_avgiftshojningar(h):
+    if h is None:
+        return SAKNAS
+    if h["kommande_procent"] >= k.AVGIFTSHOJNING_ROD_KOMMANDE_PROCENT:
+        return ROD
+    if h["kommande"] or h["senaste_procent"] >= k.AVGIFTSHOJNING_GUL_SENASTE_PROCENT:
+        return GUL
+    return GRON
+
+
+def hojningstext(hojningar):
+    """[(10, 2026-01-01), (None, None)] → "+10 % från 2026-01-01, okänd höjning (datum okänt)"."""
+    return ", ".join(
+        (f"+{tal(p, 1)} %" if p is not None else "okänd höjning")
+        + (f" från {d}" if d else " (datum okänt)")
+        for p, d in hojningar
+    )
+
+
 def farg_rantebindning(resultat):
     """Röd bara för lån som ännu inte villkorsändrats. Har de låga räntorna redan
     omförhandlats blir det gult (fråga vad det blev)."""
@@ -568,6 +637,38 @@ def bedom(data, idag):
         {GRON: f"Inom normalintervallet {intervall}.", GUL: f"Utanför normalintervallet {intervall}."},
         f"Avgiften är {tal(x, 0, 'kr/kvm')}, utanför normalintervallet. Vad beror det på, och är fler höjningar planerade?",
         avvikelse_procent(x, f), varde_tal=avrunda(x),
+    ))
+
+    # Avgiftshöjningar – kommande slår direkt mot din månadskostnad, stora senaste tyder på press
+    hojn = avgiftshojningar(data, idag)
+    farg = farg_avgiftshojningar(hojn)
+    fonster = k.AVGIFTSHOJNING_HISTORIK_MANADER
+    if hojn is None:
+        vart, kommentar_rod = "–", ""
+    else:
+        delar = []
+        if hojn["kommande"]:
+            delar.append(f"kommande {hojningstext(hojn['kommande'])}")
+        if hojn["senaste"]:
+            delar.append(f"senaste {fonster} mån {hojningstext(hojn['senaste'])}")
+        vart = "; ".join(delar) or "inga"
+    fragor = []
+    if hojn and hojn["kommande"]:
+        fragor.append(f"Föreningen har beslutat om avgiftshöjningar ({hojningstext(hojn['kommande'])}). "
+                      "Ingår de i annonsens avgift, och planeras fler?")
+    if hojn and hojn["senaste_procent"] >= k.AVGIFTSHOJNING_GUL_SENASTE_PROCENT:
+        fragor.append(f"Avgiften har höjts med sammanlagt {tal(hojn['senaste_procent'], 0, '%')} de senaste "
+                      f"{fonster} månaderna. Varför, och räcker höjningarna för att täcka kostnaderna?")
+    rader.append(rad(
+        "Avgiftshöjningar", vart, "–", farg,
+        {GRON: f"Inga beslutade höjningar framåt och inga stora höjningar de senaste {fonster} månaderna.",
+         GUL: (f"Beslutade höjningar framåt: {hojningstext(hojn['kommande'])}." if hojn and hojn["kommande"]
+               else f"Avgiften har höjts med sammanlagt {tal(hojn['senaste_procent'], 0, '%')} de senaste "
+                    f"{fonster} månaderna.") if hojn else "",
+         ROD: (f"Beslutade höjningar framåt på sammanlagt {tal(hojn['kommande_procent'], 0, '%')} "
+               f"({hojningstext(hojn['kommande'])}) – höjer din månadskostnad.") if hojn else ""},
+        " ".join(fragor) or None,
+        varde_tal=avrunda(hojn["kommande_procent"], 1) if hojn else None,
     ))
 
     # Energikostnad per kvm (föreningens egen siffra)
@@ -804,6 +905,8 @@ def bedom(data, idag):
             "total_skuld": total_skuld(data),
             "total_skuld_forklaring": total_skuld_med_forklaring(data)[1],
             "likvida_medel_per_kvm": likvida,
+            "avgiftshojningar_kommande_procent": avrunda(hojn["kommande_procent"], 2) if hojn else None,
+            "avgiftshojningar_kommande_osaker": hojn["kommande_osaker"] if hojn else None,
             "skuld_per_kvm_bostadsratt": avrunda(skuld_per_kvm_bostadsratt(data)[0]),
             "skuld_per_kvm_bostadsratt_kalla": skuld_per_kvm_bostadsratt(data)[1],
             "skuld_per_kvm_bostadsratt_avvikelse_procent": avrunda(avvikelse_procent(

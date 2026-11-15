@@ -25,7 +25,7 @@ uppdaterar Excel.
 | `bedomning.py` | Nyckeltal, färger, utslag och mäklarfrågor |
 | `kriterier.py` | Alla gränsvärden och nyckelord – ändra gränser här, inte i koden |
 | `rimlighet.py` | Rimlighetskontroller av extraktionen (ytor, lånenot, typer, sidnummer) – varnar, ändrar inte färger |
-| `lagenhet.py` | Nyckeltal för lägenheten (skuldjusterat pris) |
+| `lagenhet.py` | Nyckeltal för lägenheten (skuldjusterat pris, avgift efter beslutade höjningar) |
 | `export_excel.py` | Bygger `output/bostadsanalys.xlsx` (en rad per annons) |
 | `bokmarke/` | Bokmärket (`bostadsanalys.js`), `bygg.py` → `installera.html` |
 
@@ -42,5 +42,6 @@ venv/bin/python tests/test_skuld.py
 venv/bin/python tests/test_pdf_namn.py
 venv/bin/python tests/test_lagenhet.py
 venv/bin/python tests/test_rimlighet.py
+venv/bin/python tests/test_avgiftshojningar.py
 node bokmarke/test_bokmarke.js
 ```

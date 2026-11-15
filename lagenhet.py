@@ -23,3 +23,12 @@ def per_kvm(belopp, kvm):
     if belopp is None or not kvm:
         return None
     return round(belopp / kvm)
+
+
+def avgift_efter_hojningar(avgift, kommande_procent):
+    """Annonsens månadsavgift efter föreningens beslutade, kommande höjningar (sammanlagt %).
+    Antar att annonsens avgift är dagens och inte redan innehåller de kommande höjningarna.
+    None om avgift eller höjningsuppgift saknas."""
+    if avgift is None or kommande_procent is None:
+        return None
+    return round(avgift * (1 + kommande_procent / 100))

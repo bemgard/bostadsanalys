@@ -15,7 +15,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import kriterier as k
-from lagenhet import per_kvm, skuldjusterat_pris
+from lagenhet import avgift_efter_hojningar, per_kvm, skuldjusterat_pris
 
 BEDOMNING_DIR = Path("data/bedomning")
 ANNONSER_FIL = Path("data/annonser.json")
@@ -29,6 +29,7 @@ KOLUMNER = {
     "Räntekänslighet": ("Räntekänslighet (%)", "0.0"),
     "Sparande per kvm": ("Sparande (kr/kvm)", "#,##0"),
     "Avgift per kvm": ("Avgift (kr/kvm)", "#,##0"),
+    "Avgiftshöjningar": ("Avgiftshöjningar (% beslutade framåt)", "0.0"),
     "Energikostnad per kvm": ("Energikostnad (kr/kvm)", "#,##0"),
     "Byggdelar": ("Byggdelar (äldsta, år sedan åtgärd)", "0"),
     "Grundläggning": ("Grundläggning", None),
@@ -129,7 +130,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
     # Annonskolumner: (rubrik, talformat)
     annonskolumner = [("Adress", None), ("Pris (kr)", "#,##0"), ("Avgift (kr/mån)", "#,##0"),
                       ("Rum", None), ("Boarea (kvm)", None), ("Pris per kvm (kr)", "#,##0"),
-                      ("Skuldjusterat pris (kr)", "#,##0"), ("Skuldjusterat pris per kvm (kr)", "#,##0")]
+                      ("Skuldjusterat pris (kr)", "#,##0"), ("Skuldjusterat pris per kvm (kr)", "#,##0"),
+                      ("Avgift efter beslutade höjningar (kr/mån)", "#,##0")]
     fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula",
              "Kontrollera i PDF:en"]
     forsta_forening = len(annonskolumner) + 1  # kolumnnummer där föreningens kolumner börjar
@@ -147,8 +149,10 @@ def bygg_oversikt(ark, bedomningar, annonser):
         # Skuldjusterat pris: pris + lägenhetens andel av föreningens skuld (se lagenhet.py)
         skuld_per_kvm = (b or {}).get("detaljer", {}).get("skuld_per_kvm_bostadsratt")
         skuldjusterat = skuldjusterat_pris(pris, kvm, skuld_per_kvm)
+        kommande = (b or {}).get("detaljer", {}).get("avgiftshojningar_kommande_procent")
         annonsdel = [a.get("adress") or a.get("annons_url"), pris, a.get("avgift"), a.get("rum"), kvm,
-                     per_kvm(pris, kvm), skuldjusterat, per_kvm(skuldjusterat, kvm)]
+                     per_kvm(pris, kvm), skuldjusterat, per_kvm(skuldjusterat, kvm),
+                     avgift_efter_hojningar(a.get("avgift"), kommande)]
 
         # Föreningsdelen (tom om annonsens förening saknar bedömning)
         if b is None:

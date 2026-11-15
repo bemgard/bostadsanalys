@@ -32,6 +32,21 @@ SPARANDE_PER_KVM_GUL_MIN = 150
 AVGIFT_PER_KVM_GRON_MIN = 450
 AVGIFT_PER_KVM_GRON_MAX = 850
 
+# --- Avgiftshöjningar -----------------------------------------------------------
+# Genomförda och beslutade höjningar av årsavgiften, sorterade efter datum (inte efter
+# vilken lista årsredovisningen/extraktionen lagt dem i).
+#   kommande = träder i kraft efter dagens datum (--idag) – ingår troligen inte i
+#              annonsens avgift och slår direkt mot din månadskostnad
+#   senaste  = trätt i kraft under de senaste AVGIFTSHOJNING_HISTORIK_MANADER månaderna
+# röd om de kommande höjningarna tillsammans är minst AVGIFTSHOJNING_ROD_KOMMANDE_PROCENT
+# gul om någon kommande höjning finns (även med okänt datum eller okänd storlek),
+#     eller om de senaste höjningarna tillsammans är minst AVGIFTSHOJNING_GUL_SENASTE_PROCENT
+#     (tecken på ekonomisk press – fråga varför och om fler väntar)
+# grön annars. Flera höjningar räknas ihop med ränta-på-ränta (10 % + 10 % = 21 %).
+AVGIFTSHOJNING_ROD_KOMMANDE_PROCENT = 10
+AVGIFTSHOJNING_GUL_SENASTE_PROCENT = 20
+AVGIFTSHOJNING_HISTORIK_MANADER = 36
+
 # --- Energikostnad per kvm -------------------------------------------------------
 # Föreningens redovisade energikostnad (el + värme + vatten) per kvm totalyta.
 # gul om över detta, annars grön. Aldrig röd.
