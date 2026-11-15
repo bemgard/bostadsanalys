@@ -38,12 +38,15 @@ SIDA = """<!doctype html>
 <h2>Så används det</h2>
 <ol>
   <li>Logga in på Booli.</li>
-  <li>Öppna en annons och klicka på <b>Bostadsanalys</b>. Annonsens uppgifter läses och föreningssidan öppnas.</li>
-  <li>När föreningssidan har laddat klart: klicka på <b>Bostadsanalys</b> igen.</li>
-  <li>En ruta visar ett färdigt kommando, redan markerat. Tryck <code>Cmd+C</code>.</li>
+  <li>Öppna en <b>annons</b> och klicka på <b>Bostadsanalys</b>. Annonsens uppgifter läses och
+      föreningens årsredovisning hämtas i bakgrunden.</li>
+  <li>En ruta visar ett färdigt kommando, redan markerat. Tryck <code>Cmd+C</code>.
+      <span class="liten">(Kan föreningssidan inte läsas i bakgrunden öppnas den i stället –
+      klicka då på <b>Bostadsanalys</b> en gång till där.)</span></li>
   <li>Klistra in kommandot i Terminalen och tryck Enter.</li>
 </ol>
-<p>Du kan också klicka på bokmärket direkt på en föreningssida. Då byggs kommandot utan annonsuppgifter.</p>
+<p>Du kan också klicka på bokmärket direkt på en föreningssida, men då kommer pris, avgift och boarea
+inte med – och skuldjusterat pris och väntad avgift kan inte räknas. Börja hellre från annonsen.</p>
 
 <p class="liten">Byggt från <code>bostadsanalys.js</code> ({storlek} tecken). Har du ändrat källkoden:
 kör <code>python bokmarke/bygg.py</code>, ladda om den här sidan och dra in bokmärket på nytt.</p>

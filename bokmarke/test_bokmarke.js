@@ -83,11 +83,39 @@ lika("elak indata: inga skaltecken utanför citattecken",
   /[;|&$`<>(){}\\]/.test(kommando.slice(BAS.length).replace(/'[^']*'/g, "")), false);
 lika("elak indata: inga skaltecken inuti värdena", varden.some((v) => /[;|&$`'"\\]/.test(v.slice(1, -1))), false);
 
-console.log("\ninstallera.html");
+console.log("\nSaknade annonsfält (varning i rutan)");
+lika("allt finns", f.saknadeAnnonsfalt(annons), []);
+lika("ingen annons", f.saknadeAnnonsfalt(null), ["alla annonsuppgifter"]);
+lika("pris och boarea saknas", f.saknadeAnnonsfalt({ ...annons, pris: "Pris saknas", kvm: null }), ["pris", "boarea"]);
+
+console.log("\nAnnonsflödet (ett klick)");
+// Kör flödet med låtsade beroenden och samla vad som hände
+async function flode(hamtaPdf) {
+  const hande = { visa: null, reserv: null };
+  const resultat = await f.annonsFlode({ ...annons, foreningSokvag: "/bostadsrattsforening/46088" }, {
+    hamtaPdf, visa: (k) => { hande.visa = k; }, reserv: (a) => { hande.reserv = a.foreningSokvag; },
+  });
+  return { resultat, ...hande };
+}
+const FULLT = BAS + " --annons 'https://www.booli.se/bostad/684022' --adress 'Norra Stationsgatan 117'" +
+  " --pris '5995000' --avgift '4648' --rum '2' --kvm '63'";
+
+(async () => {
+  lika("PDF hittas i bakgrunden → kommandot visas direkt med annonsdel",
+    await flode(async () => PDF), { resultat: "klart", visa: FULLT, reserv: null });
+  lika("ingen PDF på den hämtade sidan → reserv (öppna föreningssidan)",
+    await flode(async () => null), { resultat: "reserv", visa: null, reserv: "/bostadsrattsforening/46088" });
+  lika("nätverksfel → reserv",
+    await flode(async () => { throw new Error("nätverk"); }), { resultat: "reserv", visa: null, reserv: "/bostadsrattsforening/46088" });
+  lika("PDF med fel format → reserv, aldrig ett osäkert kommando",
+    await flode(async () => "https://evil.example/a.pdf"), { resultat: "reserv", visa: null, reserv: "/bostadsrattsforening/46088" });
+
+  console.log("\ninstallera.html");
 const sida = fs.readFileSync(path.join(MAPP, "installera.html"), "utf8");
 const href = (sida.match(/href="(javascript:[^"]*)"/) || [])[1] || "";
 const avkodad = decodeURIComponent(href.slice("javascript:".length).replace(/&amp;/g, "&"));
 lika("bokmärket avkodas till exakt källkoden", avkodad === kallkod, true);
 
-console.log(`\n${godkanda}/${totalt} tester godkända`);
-process.exit(godkanda === totalt ? 0 : 1);
+  console.log(`\n${godkanda}/${totalt} tester godkända`);
+  process.exit(godkanda === totalt ? 0 : 1);
+})();

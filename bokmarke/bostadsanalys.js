@@ -1,9 +1,12 @@
 // Bokmärke för bostadsanalys.
 //
-// På en annons på Booli: läser adress, pris, avgift, rum och boarea, sparar dem
-// tillfälligt och går vidare till föreningssidan.
-// På en föreningssida: hittar årsredovisningens PDF och visar ett färdigt
-// terminalkommando för analysera.py som du kopierar med Cmd+C.
+// På en annons på Booli: läser adress, pris, avgift, rum och boarea, hämtar
+// föreningssidan i bakgrunden, hittar årsredovisningens PDF och visar ett färdigt
+// terminalkommando för analysera.py som du kopierar med Cmd+C – ett enda klick.
+// Går föreningssidan inte att läsa i bakgrunden öppnas den i stället, och du
+// klickar på bokmärket en gång till där (annonsuppgifterna följer med).
+// På en föreningssida: samma kommando, men utan annonsuppgifter om du inte
+// kom dit via bokmärket från annonsen.
 //
 // Allt som hamnar i kommandot kontrolleras strikt, eftersom det klistras in i
 // en terminal. Byggs till ett bokmärke med: python bokmarke/bygg.py
@@ -200,6 +203,55 @@
     return data.annons;
   }
 
+  // Hämta föreningssidan i bakgrunden (samma webbplats, med inloggningen) och leta
+  // upp årsredovisningen. Ger PDF-länken, eller null om den inte går att hitta.
+  function hamtaForeningPdf(sokvag) {
+    return fetch("https://www.booli.se" + sokvag, { credentials: "include" })
+      .then(function (svar) { return svar.ok ? svar.text() : null; })
+      .then(function (html) {
+        return html ? lasForeningPdf(new DOMParser().parseFromString(html, "text/html")) : null;
+      });
+  }
+
+  // Annonsflödet: hämta PDF:en i bakgrunden och visa kommandot direkt. Går det inte
+  // (sidan laddar dokumenten med JavaScript, nätverksfel, ej inloggad) används
+  // reserven: öppna föreningssidan och låt användaren klicka en gång till.
+  // Beroendena skickas in så att flödet kan testas utan webbläsare.
+  function annonsFlode(annons, beroenden) {
+    return Promise.resolve()
+      .then(function () { return beroenden.hamtaPdf(annons.foreningSokvag); })
+      .catch(function () { return null; })
+      .then(function (pdf) {
+        var kommando = pdf ? byggKommando(pdf, annons) : null;
+        if (kommando) {
+          beroenden.visa(kommando);
+          return "klart";
+        }
+        beroenden.reserv(annons);
+        return "reserv";
+      });
+  }
+
+  // Annonsuppgifter som saknas i kommandot – för en tydlig varning i stället för tysta luckor.
+  function saknadeAnnonsfalt(annons) {
+    if (!annons) return ["alla annonsuppgifter"];
+    var saknas = [];
+    if (!heltal(annons.pris)) saknas.push("pris");
+    if (!heltal(annons.avgift)) saknas.push("avgift");
+    if (!decimaltal(annons.kvm)) saknas.push("boarea");
+    return saknas;
+  }
+
+  function visaKommando(kommando, annons) {
+    var saknas = saknadeAnnonsfalt(annons);
+    var rubrik = "Kopiera kommandot (Cmd+C) och klistra in det i Terminalen:";
+    if (saknas.length) {
+      rubrik = "OBS: " + saknas.join(", ") + " saknas – skuldjusterat pris och väntad avgift kan inte räknas. " +
+        (annons ? "" : "Börja från annonsen för att få med dem. ") + rubrik;
+    }
+    prompt(rubrik, kommando);
+  }
+
   // --- Körning ---------------------------------------------------------------
 
   function kor(doc, loc) {
@@ -213,13 +265,19 @@
               "Öppna föreningssidan själv och klicka på bokmärket där.");
         return;
       }
-      try {
-        sessionStorage.setItem(LAGRINGSNYCKEL, JSON.stringify({
-          annons: annons, foreningSokvag: annons.foreningSokvag, tid: Date.now()
-        }));
-      } catch (e) { /* lagring avstängd – kommandot byggs då utan annonsdel */ }
-      alert("Annonsen är läst. Föreningssidan öppnas nu – klicka på bokmärket igen när den har laddat klart.");
-      loc.href = loc.origin + annons.foreningSokvag;
+      annonsFlode(annons, {
+        hamtaPdf: hamtaForeningPdf,
+        visa: function (kommando) { visaKommando(kommando, annons); },
+        reserv: function (a) {
+          try {
+            sessionStorage.setItem(LAGRINGSNYCKEL, JSON.stringify({
+              annons: a, foreningSokvag: a.foreningSokvag, tid: Date.now()
+            }));
+          } catch (e) { /* lagring avstängd – kommandot byggs då utan annonsdel */ }
+          alert("Annonsen är läst. Föreningssidan öppnas nu – klicka på bokmärket igen när den har laddat klart.");
+          loc.href = loc.origin + a.foreningSokvag;
+        }
+      });
       return;
     }
 
@@ -229,12 +287,13 @@
         alert("Logga in på Booli för att se dokumenten.");
         return;
       }
-      var kommando = byggKommando(pdf, hamtaSparadAnnons(loc.pathname.replace(/\/$/, "")));
+      var sparad = hamtaSparadAnnons(loc.pathname.replace(/\/$/, ""));
+      var kommando = byggKommando(pdf, sparad);
       if (!kommando) {
         alert("Årsredovisningens länk har ett oväntat format och används inte av säkerhetsskäl:\n\n" + pdf);
         return;
       }
-      prompt("Kopiera kommandot (Cmd+C) och klistra in det i Terminalen:", kommando);
+      visaKommando(kommando, sparad);
       return;
     }
 
@@ -245,7 +304,8 @@
   if (typeof window !== "undefined" && typeof window.__BOSTADSANALYS_TEST__ === "function") {
     window.__BOSTADSANALYS_TEST__({
       sidtyp: sidtyp, lasAnnons: lasAnnons, lasForeningPdf: lasForeningPdf,
-      byggKommando: byggKommando, tvattaAdress: tvattaAdress
+      byggKommando: byggKommando, tvattaAdress: tvattaAdress,
+      annonsFlode: annonsFlode, saknadeAnnonsfalt: saknadeAnnonsfalt
     });
     return;
   }
