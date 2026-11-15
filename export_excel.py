@@ -23,7 +23,7 @@ UTFIL = Path("output/bostadsanalys.xlsx")
 # Kolumnrubrik (med enhet) och Excel-talformat per nyckeltal.
 # Format None = texten skrivs som den är (tomträtt, revisorn).
 KOLUMNER = {
-    "Belåning per kvm": ("Belåning (kr/kvm)", "#,##0"),
+    "Belåning per kvm": ("Belåning (kr/kvm bostadsrättsyta)", "#,##0"),
     "Räntekänslighet": ("Räntekänslighet (%)", "0.0"),
     "Sparande per kvm": ("Sparande (kr/kvm)", "#,##0"),
     "Avgift per kvm": ("Avgift (kr/kvm)", "#,##0"),

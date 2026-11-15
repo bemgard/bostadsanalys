@@ -21,7 +21,7 @@ ALDRE_EXTRAKTION = "Extraktionen är gjord med en äldre version – kör om med
 # Vilka extraktionsfält varje nyckeltal bygger på. Saknas ett fält helt i JSON-filen
 # är extraktionen gjord med en äldre version (inte att uppgiften saknas i årsredovisningen).
 BEROENDEN = {
-    "Belåning per kvm": ("skulder_kreditinstitut_langfristiga", "skulder_kreditinstitut_kortfristiga", "total_yta_kvm"),
+    "Belåning per kvm": ("skulder_kreditinstitut_langfristiga", "skulder_kreditinstitut_kortfristiga", "bostadsyta_kvm"),
     "Räntekänslighet": ("skulder_kreditinstitut_langfristiga", "skulder_kreditinstitut_kortfristiga", "arsavgifter_bostader"),
     "Sparande per kvm": ("sparande_per_kvm",),
     "Avgift per kvm": ("arsavgifter_bostader", "bostadsyta_kvm"),
@@ -113,10 +113,8 @@ def total_skuld(data):
 
 
 def belaning_per_kvm(data):
-    skuld, yta = total_skuld(data), v(data, "total_yta_kvm")
-    if skuld is None or not yta:
-        return None
-    return skuld / yta
+    """Belåning per kvm BOSTADSRÄTTSYTA – samma mått som skuldjusterat pris bygger på."""
+    return skuld_per_kvm_bostadsratt(data)[0]
 
 
 def skuld_per_kvm_bostadsratt(data):
@@ -152,13 +150,17 @@ def avgift_per_kvm(data):
     return avgifter / yta
 
 
-def lan_inom_horisont(data):
-    """Lån (med belopp) som villkorsändras inom horisonten från räkenskapsårets slut.
-    Lån utan villkorsändringsdag räknas som inom horisonten (försiktigt antagande)."""
+def lan_inom_horisont(data, idag=None):
+    """Lån (med belopp) som villkorsändras från räkenskapsårets slut till horisonten,
+    räknad från IDAG (inte från räkenskapsårets slut – rapporten kan vara över ett år gammal,
+    och det är räntorna framåt från köpet som spelar roll). Utan idag räknas horisonten
+    från räkenskapsårets slut. Lån utan villkorsändringsdag räknas som inom horisonten
+    (försiktigt antagande)."""
     slut = rakenskapsar_slut(data)
     if slut is None:
         return []
-    grans = lagg_till_manader(slut, k.RANTEBINDNING_HORISONT_MANADER)
+    start = max(slut, idag) if idag else slut
+    grans = lagg_till_manader(start, k.RANTEBINDNING_HORISONT_MANADER)
     return [
         l for l in data.get("lan") or []
         if l.get("belopp") is not None
@@ -170,7 +172,7 @@ def lan_inom_horisont(data):
 def passerade_villkorsandringar(data, idag):
     """Villkorsändringsdagar (inom horisonten) som redan passerat, sorterade.
     Tom lista om någon villkorsändring inom horisonten ännu inte skett eller saknar datum."""
-    datum = [till_datum(l.get("villkorsandringsdag")) for l in lan_inom_horisont(data)]
+    datum = [till_datum(l.get("villkorsandringsdag")) for l in lan_inom_horisont(data, idag)]
     if not datum or any(d is None or d >= idag for d in datum):
         return []
     return sorted(set(datum))
@@ -198,7 +200,7 @@ def rantebindning(data, idag=None):
     if not data.get("lan"):
         return None  # skuld finns men inga lån redovisas
 
-    inom = lan_inom_horisont(data)
+    inom = lan_inom_horisont(data, idag)
     kvar = [l for l in inom
             if idag is None or till_datum(l.get("villkorsandringsdag")) is None
             or till_datum(l.get("villkorsandringsdag")) >= idag]
@@ -501,13 +503,16 @@ def bedom(data, idag):
     """Räkna nyckeltal, sätt färger och utslag. Returnerar resultatet som dict."""
     rader = []
 
-    # Belåning per kvm
-    x, f = belaning_per_kvm(data), v(data, "skuldsattning_per_kvm_totalyta")
+    # Belåning per kvm bostadsrättsyta (bostadsrättsinnehavarna bär skulden, inte lokalerna)
+    x, kalla = skuld_per_kvm_bostadsratt(data)
+    f = v(data, "skuldsattning_per_kvm_bostadsratt")
+    egen = kalla.startswith("egen")
     rader.append(rad(
         "Belåning per kvm", tal(x, 0, "kr/kvm"), tal(f, 0, "kr/kvm"), farg_belaning(x),
         {GRON: "Låg belåning.", GUL: "Måttlig belåning.", ROD: "Hög belåning."},
-        f"Belåningen är {tal(x, 0, 'kr/kvm')}. Finns en plan för amortering, och hur påverkas avgiften om räntan stiger?",
-        avvikelse_procent(x, f), varde_tal=avrunda(x),
+        f"Belåningen är {tal(x, 0, 'kr/kvm')} bostadsrättsyta. Finns en plan för amortering, "
+        "och hur påverkas avgiften om räntan stiger?",
+        avvikelse_procent(x, f) if egen else None, varde_tal=avrunda(x),
     ))
 
     # Räntekänslighet
@@ -572,7 +577,7 @@ def bedom(data, idag):
         "Räntebindning",
         f"{tal(andel, 0, '%')} inom {h} mån, snitt {tal(snitt, 2, '%')}" if resultat else "–",
         "–", farg_rantebindning(resultat),
-        {GRON: f"Liten del av skulden får ny ränta inom {h} mån.",
+        {GRON: f"Liten del av skulden får ny ränta inom {h} mån från idag.",
          GUL: "Lånen har redan omförhandlats – fråga vilka räntor det blev och hur avgiften påverkats."
               if redan_omforhandlad(resultat) else f"{tal(andel, 0, '%')} av skulden får ny ränta inom {h} mån.",
          ROD: f"{tal(andel_kvar, 0, '%')} av skulden får ny ränta inom {h} mån och har ännu inte villkorsändrats, "

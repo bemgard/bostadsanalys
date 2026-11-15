@@ -7,7 +7,8 @@ Belopp är i kronor, ytor i kvm.
 """
 
 # --- Belåning per kvm ----------------------------------------------------------
-# Skulder till kreditinstitut (lång- + kortfristiga) / total yta (kr/kvm).
+# Skulder till kreditinstitut (lång- + kortfristiga) / bostadsrättsyta (kr/kvm).
+# Bostadsrättsyta, inte totalyta: det är bostadsrättsinnehavarna som bär skulden.
 # grön ≤ 5 000, gul ≤ 9 000, röd > 9 000
 BELANING_PER_KVM_GRON_MAX = 5000
 BELANING_PER_KVM_GUL_MAX = 9000
@@ -104,8 +105,8 @@ BYGGDELAR = {
 BYGGDELAR_EJ_BYTE = ["spolning", "översyn", "besiktning", "målning", "korrigering"]
 
 # --- Räntebindning ---------------------------------------------------------------
-# Hur stor del av skulden som får ny ränta (villkorsändras) inom horisonten,
-# räknat från räkenskapsårets slut.
+# Hur stor del av skulden som får ny ränta (villkorsändras) från räkenskapsårets
+# slut fram till horisonten, räknad från dagens datum (--idag).
 RANTEBINDNING_HORISONT_MANADER = 24
 # gul om andelen av skulden som omförhandlas inom horisonten är större än detta
 RANTEBINDNING_GUL_ANDEL_PROCENT = 30

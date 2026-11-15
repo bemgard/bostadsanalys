@@ -10,9 +10,9 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from bedomning import GUL, ROD, bedom  # noqa: E402
+from bedomning import GRON, GUL, ROD, bedom  # noqa: E402
 
-IDAG = date(2026, 10, 8)  # horisonten (24 mån från 2024-12-31) slutar 2026-12-31
+IDAG = date(2026, 10, 8)  # horisonten är 24 mån från IDAG, alltså t.o.m. 2028-10-08
 OMFORHANDLAD = "Lånen har redan omförhandlats – fråga vilka räntor det blev och hur avgiften påverkats."
 
 
@@ -46,6 +46,12 @@ FALL = [
      [(10_000_000, 0.72, "2026-10-08")], ROD, False),
     ("lån utan villkorsändringsdag räknas som ej omförhandlat → röd",
      [(10_000_000, 0.72, None)], ROD, False),
+    ("villkorsändras efter rapportens horisont men inom 24 mån från idag → röd",
+     [(10_000_000, 0.72, "2027-06-01")], ROD, False),
+    ("villkorsändras precis på horisonten (idag + 24 mån) → röd",
+     [(10_000_000, 0.72, "2028-10-08")], ROD, False),
+    ("villkorsändras efter horisonten från idag → grön",
+     [(10_000_000, 0.72, "2028-10-09")], GRON, False),
 ]
 
 godkanda = totalt = 0
