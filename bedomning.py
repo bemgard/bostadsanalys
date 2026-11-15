@@ -236,18 +236,32 @@ def viktad_ranta(lan):
     return sum(l["belopp"] * l["rantesats_procent"] for l in med_ranta) / vikt if vikt else None
 
 
+def okad_rantekostnad(lan):
+    """Ökad räntekostnad i kr/år om lånen får marknadsräntan (aldrig negativ per lån).
+    Lån utan räntesats räknas inte med (se ranta_saknas)."""
+    mr = k.MARKNADSRANTA_FORENINGSLAN_PROCENT
+    return sum(l["belopp"] * max(0.0, mr - l["rantesats_procent"]) / 100
+               for l in lan if l.get("rantesats_procent") is not None)
+
+
 def rantebindning(data, idag=None):
-    """Lån som villkorsändras inom horisonten från räkenskapsårets slut. Returnerar en dict:
-      andel, snittranta         – alla dessa lån (andel av total skuld i %, viktad ränta i %)
+    """Lån som villkorsändras från räkenskapsårets slut till horisonten (räknad från idag).
+    Returnerar en dict:
+      andel, snittranta           – alla dessa lån (andel av total skuld i %, viktad ränta i %)
       andel_kvar, snittranta_kvar – bara de som ännu inte villkorsändrats (datum ≥ idag)
-    Lån vars villkorsändringsdag passerat före idag räknas som redan omförhandlade.
+      vantad_avgiftshojning       – kommande lån till marknadsräntan, i % av årsavgifterna
+      passerad_avgiftseffekt      – samma för lån som redan villkorsändrats efter räkenskapsåret
+                                    (effekten kan redan synas i avgiften – eller komma)
+      ranta_saknas                – något lån som ännu inte villkorsändrats saknar räntesats
+    Avgiftseffekterna är None om årsavgifterna saknas.
     Lån utan villkorsändringsdag räknas som inom horisonten och ej omförhandlade (försiktigt).
     None om skuld, räkenskapsår eller lån saknas."""
     skuld, slut = total_skuld(data), rakenskapsar_slut(data)
     if skuld is None or slut is None:
         return None
     if skuld == 0:
-        return {"andel": 0.0, "snittranta": None, "andel_kvar": 0.0, "snittranta_kvar": None}
+        return {"andel": 0.0, "snittranta": None, "andel_kvar": 0.0, "snittranta_kvar": None,
+                "vantad_avgiftshojning": 0.0, "passerad_avgiftseffekt": 0.0, "ranta_saknas": False}
     if not data.get("lan"):
         return None  # skuld finns men inga lån redovisas
 
@@ -255,26 +269,27 @@ def rantebindning(data, idag=None):
     kvar = [l for l in inom
             if idag is None or till_datum(l.get("villkorsandringsdag")) is None
             or till_datum(l.get("villkorsandringsdag")) >= idag]
+    passerade = [l for l in inom if l not in kvar]
+    avgifter = v(data, "arsavgifter_bostader")
     return {
         "andel": sum(l["belopp"] for l in inom) / skuld * 100,
         "snittranta": viktad_ranta(inom),
         "andel_kvar": sum(l["belopp"] for l in kvar) / skuld * 100,
         "snittranta_kvar": viktad_ranta(kvar),
+        "vantad_avgiftshojning": okad_rantekostnad(kvar) / avgifter * 100 if avgifter else None,
+        "passerad_avgiftseffekt": okad_rantekostnad(passerade) / avgifter * 100 if avgifter else None,
+        "ranta_saknas": any(l.get("rantesats_procent") is None for l in kvar),
     }
 
 
-def lag_ranta_och_stor_andel(andel, snittranta):
-    """Röd-villkoret: stor andel av skulden får ny ränta, från låg snittränta."""
-    return (andel > k.RANTEBINDNING_ROD_ANDEL_PROCENT and snittranta is not None
-            and snittranta < k.RANTEBINDNING_ROD_RANTA_MAX_PROCENT)
-
-
 def redan_omforhandlad(resultat):
-    """True om röd-villkoret gäller för alla lån inom horisonten men inte för de som
-    återstår – dvs. de låga räntorna har redan villkorsändrats."""
-    return (resultat is not None
-            and lag_ranta_och_stor_andel(resultat["andel"], resultat["snittranta"])
-            and not lag_ranta_och_stor_andel(resultat["andel_kvar"], resultat["snittranta_kvar"]))
+    """True om lån som redan villkorsändrats efter räkenskapsåret (troligen från låg ränta)
+    ger en märkbar avgiftseffekt, medan de som återstår inte gör det."""
+    if resultat is None or resultat["passerad_avgiftseffekt"] is None:
+        return False
+    gul = k.RANTEBINDNING_GUL_AVGIFTSHOJNING_PROCENT
+    return (resultat["passerad_avgiftseffekt"] >= gul
+            and (resultat["vantad_avgiftshojning"] or 0) < gul)
 
 
 def inom_renoveringshorisont(planerat_ar, slutar):
@@ -438,13 +453,16 @@ def hojningstext(hojningar):
 
 
 def farg_rantebindning(resultat):
-    """Röd bara för lån som ännu inte villkorsändrats. Har de låga räntorna redan
-    omförhandlats blir det gult (fråga vad det blev)."""
+    """Färg efter väntad avgiftshöjning när lånen får marknadsräntan."""
     if resultat is None:
         return SAKNAS
-    if lag_ranta_och_stor_andel(resultat["andel_kvar"], resultat["snittranta_kvar"]):
+    vantad = resultat["vantad_avgiftshojning"]
+    if vantad is not None and vantad >= k.RANTEBINDNING_ROD_AVGIFTSHOJNING_PROCENT:
         return ROD
-    if redan_omforhandlad(resultat) or resultat["andel"] > k.RANTEBINDNING_GUL_ANDEL_PROCENT:
+    if vantad is None and resultat["andel_kvar"] > 0:
+        return GUL  # årsavgifterna saknas – kan inte räkna
+    if ((vantad or 0) >= k.RANTEBINDNING_GUL_AVGIFTSHOJNING_PROCENT or redan_omforhandlad(resultat)
+            or resultat["ranta_saknas"]):
         return GUL
     return GRON
 
@@ -682,29 +700,45 @@ def bedom(data, idag):
         varde_tal=avrunda(energi),
     ))
 
-    # Räntebindning
+    # Räntebindning – väntad avgiftshöjning när lånen får marknadsräntan
     resultat = rantebindning(data, idag)
     h = k.RANTEBINDNING_HORISONT_MANADER
+    mr = tal(k.MARKNADSRANTA_FORENINGSLAN_PROCENT, 1, "%")
+    farg = farg_rantebindning(resultat)
     andel = resultat["andel"] if resultat else None
     snitt = resultat["snittranta"] if resultat else None
-    andel_kvar = resultat["andel_kvar"] if resultat else None
+    vantad = resultat["vantad_avgiftshojning"] if resultat else None
     passerade = passerade_villkorsandringar(data, idag)
-    if passerade:
-        fraga = (f"Lånen villkorsändrades {', '.join(str(d) for d in passerade)}. "
-                 "Vilka räntor blev det och hur har avgiften påverkats?")
+    if resultat is None:
+        gul_text = ""
+    elif redan_omforhandlad(resultat):
+        gul_text = "Lånen har redan omförhandlats – fråga vilka räntor det blev och hur avgiften påverkats."
+    elif resultat["ranta_saknas"]:
+        gul_text = "Räntan saknas för lån som villkorsändras – väntad avgiftshöjning går inte att räkna fullt ut."
+    elif vantad is None:
+        gul_text = "Årsavgifterna saknas – väntad avgiftshöjning går inte att räkna."
     else:
-        fraga = (f"{tal(andel, 0, '%')} av lånen villkorsändras inom {h} månader. "
-                 "Vilka räntor har de nya villkoren fått, och hur påverkar det avgiften?")
+        gul_text = (f"Lån som villkorsändras inom {h} mån ger en väntad avgiftshöjning på ca "
+                    f"{tal(vantad, 0, '%')} vid {mr} marknadsränta.")
+    fragor = []
+    if passerade:
+        fragor.append(f"Lånen villkorsändrades {', '.join(str(d) for d in passerade)}. "
+                      "Vilka räntor blev det och hur har avgiften påverkats?")
+    if resultat and resultat["andel_kvar"] > 0:
+        fragor.append(f"{tal(resultat['andel_kvar'], 0, '%')} av lånen villkorsändras inom {h} månader"
+                      + (f", vilket vid {mr} ränta motsvarar ca {tal(vantad, 0, '%')} högre avgift"
+                         if vantad else "")
+                      + ". Hur har styrelsen budgeterat för det?")
     rader.append(rad(
         "Räntebindning",
-        f"{tal(andel, 0, '%')} inom {h} mån, snitt {tal(snitt, 2, '%')}" if resultat else "–",
-        "–", farg_rantebindning(resultat),
-        {GRON: f"Liten del av skulden får ny ränta inom {h} mån från idag.",
-         GUL: "Lånen har redan omförhandlats – fråga vilka räntor det blev och hur avgiften påverkats."
-              if redan_omforhandlad(resultat) else f"{tal(andel, 0, '%')} av skulden får ny ränta inom {h} mån.",
-         ROD: f"{tal(andel_kvar, 0, '%')} av skulden får ny ränta inom {h} mån och har ännu inte villkorsändrats, "
-              "från låg snittränta – risk för kraftigt höjd räntekostnad."},
-        fraga, varde_tal=avrunda(andel),
+        (f"{tal(andel, 0, '%')} inom {h} mån, snitt {tal(snitt, 2, '%')}, "
+         f"väntad avgiftshöjning {tal(vantad, 1, '%')}") if resultat else "–",
+        "–", farg,
+        {GRON: f"Liten väntad avgiftshöjning när lånen villkorsändras inom {h} mån (vid {mr} marknadsränta).",
+         GUL: gul_text,
+         ROD: (f"Lån som villkorsändras inom {h} mån ger en väntad avgiftshöjning på ca "
+               f"{tal(vantad, 0, '%')} vid {mr} marknadsränta.") if vantad is not None else ""},
+        " ".join(fragor) or None, varde_tal=avrunda(vantad, 1),
     ))
 
     # Renoveringar – utan redovisad underhållsplan blir raden minst gul
@@ -905,6 +939,7 @@ def bedom(data, idag):
             "total_skuld": total_skuld(data),
             "total_skuld_forklaring": total_skuld_med_forklaring(data)[1],
             "likvida_medel_per_kvm": likvida,
+            "vantad_avgiftshojning_ranta_procent": avrunda(resultat["vantad_avgiftshojning"], 2) if resultat else None,
             "avgiftshojningar_kommande_procent": avrunda(hojn["kommande_procent"], 2) if hojn else None,
             "avgiftshojningar_kommande_osaker": hojn["kommande_osaker"] if hojn else None,
             "skuld_per_kvm_bostadsratt": avrunda(skuld_per_kvm_bostadsratt(data)[0]),

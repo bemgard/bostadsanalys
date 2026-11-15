@@ -123,13 +123,23 @@ BYGGDELAR_EJ_BYTE = ["spolning", "översyn", "besiktning", "målning", "korriger
 # Hur stor del av skulden som får ny ränta (villkorsändras) från räkenskapsårets
 # slut fram till horisonten, räknad från dagens datum (--idag).
 RANTEBINDNING_HORISONT_MANADER = 24
-# gul om andelen av skulden som omförhandlas inom horisonten är större än detta
-RANTEBINDNING_GUL_ANDEL_PROCENT = 30
-# röd om andelen är större än detta OCH den viktade snitträntan på just de
-# lånen är lägre än RANTEBINDNING_ROD_RANTA_MAX_PROCENT (dvs. stor risk för
-# kraftigt höjd räntekostnad)
-RANTEBINDNING_ROD_ANDEL_PROCENT = 40
-RANTEBINDNING_ROD_RANTA_MAX_PROCENT = 2.5
+
+# Marknadsränta: den ränta föreningens lån antas få när de villkorsändras.
+# UPPDATERA när räntorna ändras. Satt 2026-11-15: snitträntan för föreningslån var
+# 2,82 % i mars 2026 (SCB via Dagens PS), Riksbanken höjde styrräntan till 2,00 %
+# den 4 nov 2026 och väntas höja mer 2027 – 3,5 % är en försiktig bedömning för
+# lån som binds om inom horisonten.
+MARKNADSRANTA_FORENINGSLAN_PROCENT = 3.5
+
+# Väntad avgiftshöjning = Σ belopp × (marknadsränta − lånets ränta) / årsavgifterna,
+# för lån som villkorsändras från idag till horisonten (lån med högre ränta än
+# marknadsräntan räknas som 0, inte som sänkning).
+# röd om väntad avgiftshöjning ≥ RANTEBINDNING_ROD_AVGIFTSHOJNING_PROCENT
+# gul om den är ≥ RANTEBINDNING_GUL_AVGIFTSHOJNING_PROCENT, eller om lån som redan
+#     villkorsändrats efter räkenskapsåret gav samma effekt (fråga om avgiften redan höjts),
+#     eller om räntan/årsavgifterna saknas så att det inte går att räkna
+RANTEBINDNING_ROD_AVGIFTSHOJNING_PROCENT = 10
+RANTEBINDNING_GUL_AVGIFTSHOJNING_PROCENT = 3
 
 # --- Renoveringar ----------------------------------------------------------------
 # Planerat underhåll inom horisonten (år från räkenskapsårets slut).

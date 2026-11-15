@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bedomning import skuld_per_kvm_bostadsratt  # noqa: E402
-from lagenhet import per_kvm, skuldjusterat_pris  # noqa: E402
+from lagenhet import per_kvm, skuldjusterat_pris, vantad_avgift  # noqa: E402
 
 
 def data(lang, kort, bostadsyta, foreningens):
@@ -39,6 +39,11 @@ FALL = [
     ("skuld/kvm: indata saknas, föreningens siffra", skuld_per_kvm, (8_000_000, 2_000_000, None, 9000), 9000),
     ("skuld/kvm: allt saknas", skuld_per_kvm, (None, None, None, None), None),
     ("skuldfri förening (skuld 0)", skuld_per_kvm, (0, 0, 1000, None), 0),
+    ("väntad avgift: räntan större än beslutad höjning", vantad_avgift, (4000, 4.5, 10.0), 4400),
+    ("väntad avgift: beslutad höjning större", vantad_avgift, (4000, 12.0, 5.0), 4480),
+    ("väntad avgift: bara räntan känd", vantad_avgift, (4000, None, 5.0), 4200),
+    ("väntad avgift: inget känt", vantad_avgift, (4000, None, None), None),
+    ("väntad avgift: avgift saknas", vantad_avgift, (None, 4.5, 5.0), None),
     ("per kvm", per_kvm, (5_500_000, 50), 110_000),
     ("per kvm, belopp saknas", per_kvm, (None, 50), None),
 ]

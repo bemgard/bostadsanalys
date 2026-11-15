@@ -15,7 +15,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import kriterier as k
-from lagenhet import avgift_efter_hojningar, per_kvm, skuldjusterat_pris
+from lagenhet import avgift_efter_hojningar, per_kvm, skuldjusterat_pris, vantad_avgift
 
 BEDOMNING_DIR = Path("data/bedomning")
 ANNONSER_FIL = Path("data/annonser.json")
@@ -37,7 +37,7 @@ KOLUMNER = {
     "Föreningens storlek": ("Bostadsrätter (antal)", "0"),
     "Hyresrätter": ("Hyresrätter (antal)", "0"),
     "Byggår": ("Byggår", "0"),
-    "Räntebindning": (f"Räntebindning (% av skulden inom {k.RANTEBINDNING_HORISONT_MANADER} mån)", "0"),
+    "Räntebindning": (f"Räntebindning (väntad avgiftshöjning %, vid {k.MARKNADSRANTA_FORENINGSLAN_PROCENT} % ränta)", "0.0"),
     "Renoveringar": (f"Stora renoveringar (antal inom {k.RENOVERINGAR_HORISONT_AR} år)", "0"),
     "Rapportens ålder": ("Rapportens ålder (mån)", "0"),
     "Tomträtt": ("Tomträtt", None),
@@ -131,7 +131,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
     annonskolumner = [("Adress", None), ("Pris (kr)", "#,##0"), ("Avgift (kr/mån)", "#,##0"),
                       ("Rum", None), ("Boarea (kvm)", None), ("Pris per kvm (kr)", "#,##0"),
                       ("Skuldjusterat pris (kr)", "#,##0"), ("Skuldjusterat pris per kvm (kr)", "#,##0"),
-                      ("Avgift efter beslutade höjningar (kr/mån)", "#,##0")]
+                      ("Avgift efter beslutade höjningar (kr/mån)", "#,##0"),
+                      ("Väntad avgift (kr/mån)", "#,##0")]
     fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula",
              "Kontrollera i PDF:en"]
     forsta_forening = len(annonskolumner) + 1  # kolumnnummer där föreningens kolumner börjar
@@ -149,10 +150,13 @@ def bygg_oversikt(ark, bedomningar, annonser):
         # Skuldjusterat pris: pris + lägenhetens andel av föreningens skuld (se lagenhet.py)
         skuld_per_kvm = (b or {}).get("detaljer", {}).get("skuld_per_kvm_bostadsratt")
         skuldjusterat = skuldjusterat_pris(pris, kvm, skuld_per_kvm)
-        kommande = (b or {}).get("detaljer", {}).get("avgiftshojningar_kommande_procent")
+        detaljer = (b or {}).get("detaljer", {})
+        kommande = detaljer.get("avgiftshojningar_kommande_procent")
+        vantad_ranta = detaljer.get("vantad_avgiftshojning_ranta_procent")
         annonsdel = [a.get("adress") or a.get("annons_url"), pris, a.get("avgift"), a.get("rum"), kvm,
                      per_kvm(pris, kvm), skuldjusterat, per_kvm(skuldjusterat, kvm),
-                     avgift_efter_hojningar(a.get("avgift"), kommande)]
+                     avgift_efter_hojningar(a.get("avgift"), kommande),
+                     vantad_avgift(a.get("avgift"), kommande, vantad_ranta)]
 
         # Föreningsdelen (tom om annonsens förening saknar bedömning)
         if b is None:

@@ -32,3 +32,16 @@ def avgift_efter_hojningar(avgift, kommande_procent):
     if avgift is None or kommande_procent is None:
         return None
     return round(avgift * (1 + kommande_procent / 100))
+
+
+def vantad_avgift(avgift, kommande_procent, vantad_ranta_procent):
+    """Annonsens månadsavgift efter den STÖRSTA av (a) föreningens beslutade kommande höjningar
+    och (b) den väntade höjningen när lånen villkorsändras till marknadsräntan.
+    Den största i stället för summan: beslutade höjningar görs ofta just för att täcka högre
+    räntor, så summan skulle ofta räkna samma höjning två gånger. Är höjningarna till för olika
+    saker (t.ex. en renovering) blir siffran för låg – därav mäklarfrågan om vad de ska täcka.
+    None om avgiften saknas eller ingen av höjningarna går att räkna."""
+    hojningar = [x for x in (kommande_procent, vantad_ranta_procent) if x is not None]
+    if avgift is None or not hojningar:
+        return None
+    return round(avgift * (1 + max(hojningar) / 100))
