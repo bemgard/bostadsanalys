@@ -224,9 +224,47 @@ SAKNAS_RAKNAS_SOM = "gul"
 # Rader som visas och färgas men INTE räknas i utslaget (t.ex. sökfilter som byggår).
 UTSLAG_RAKNAS_EJ = ["Byggår"]
 
-# SORTERA BORT: minst UTSLAG_SORTERA_BORT_MIN_RODA röda
-# AVVAKTA:      minst UTSLAG_AVVAKTA_MIN_RODA röd ELLER minst UTSLAG_AVVAKTA_MIN_GULA gula
-# GÅ VIDARE:    annars
-UTSLAG_SORTERA_BORT_MIN_RODA = 2
-UTSLAG_AVVAKTA_MIN_RODA = 1
-UTSLAG_AVVAKTA_MIN_GULA = 3
+# Utslaget räknas i utslag.py:
+# 1. Stoppfaktorer – en räcker för SORTERA BORT, oavsett poäng.
+STOPP_OAKTA_FORENING = True          # oäkta förening
+STOPP_REVISORNS_ANMARKNING = True    # anmärkning (inte upplysning) i revisionsberättelsen
+STOPP_GRUNDPROBLEM = True            # planerade eller pågående problem med grunden
+STOPP_VANTAD_AVGIFTSHOJNING_PROCENT = 20  # väntad avgiftshöjning när lånen villkorsändras (None = av)
+
+# 2. Poäng 0–100: viktat snitt där grön = 1, gul = ½, röd = 0 (saknas = SAKNAS_RAKNAS_SOM).
+# Tunga kriterier (vikt 3) avgör mest; rader som inte står här får standardvikten.
+UTSLAG_VIKTER = {
+    "Belåning per kvm": 3,
+    "Sparande per kvm": 3,
+    "Räntebindning": 3,
+    "Avgiftshöjningar": 3,
+    "Renoveringar": 3,
+    "Byggdelar": 3,          # stambyte, tak, fasad, el
+    "Grundläggning": 3,
+    "Räntekänslighet": 1,
+    "Avgift per kvm": 1,
+    "Energikostnad per kvm": 1,
+    "Föreningens storlek": 1,
+    "Tomträtt": 1,
+    "Rapportens ålder": 1,
+    "Äkta förening": 1,      # oäkta är redan en stoppfaktor
+    "Revisorn": 1,           # anmärkning är redan en stoppfaktor
+}
+UTSLAG_VIKT_STANDARD = 1
+UTSLAG_TUNG_VIKT = 3  # vikt från vilken ett kriterium räknas som tungt (i motivering och datakvalitet)
+
+# 3. Utslag (om ingen stoppfaktor slagit till), i den här ordningen:
+#    - minst UTSLAG_SORTERA_BORT_TUNGA_RODA röda tunga kriterier → SORTERA BORT
+#    - poäng under UTSLAG_AVVAKTA_MIN_POANG → SORTERA BORT
+#    - något rött tungt kriterium → högst AVVAKTA, oavsett poäng
+#    - poäng minst UTSLAG_GA_VIDARE_MIN_POANG → GÅ VIDARE, annars AVVAKTA
+# Kalibrerat 2026-11-15 mot 16 föreningar: poängen ensam spred för lite – det som skiljer
+# föreningar åt är röda tunga kriterier (t.ex. belåning och sparande samtidigt).
+UTSLAG_SORTERA_BORT_TUNGA_RODA = 2
+UTSLAG_GA_VIDARE_MIN_POANG = 75
+UTSLAG_AVVAKTA_MIN_POANG = 50
+
+# 4. Datakvalitet: "Osäker" om minst så här många nyckeltal saknas, något tungt
+#    nyckeltal saknas, eller minst så här många rimlighetsvarningar finns.
+DATAKVALITET_OSAKER_SAKNADE = 3
+DATAKVALITET_OSAKER_VARNINGAR = 2

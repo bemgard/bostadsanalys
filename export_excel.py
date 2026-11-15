@@ -81,11 +81,11 @@ def las_annonser():
 
 
 def sorteringsnyckel(b):
-    """GÅ VIDARE först, sedan AVVAKTA, sist SORTERA BORT; inom gruppen färst röda (sedan gula) först.
+    """GÅ VIDARE först, sedan AVVAKTA, sist SORTERA BORT; inom gruppen högst poäng först.
     En annons vars förening saknar bedömning (b = None) hamnar sist."""
     if b is None:
-        return (99, 0, 0, "")
-    return (UTSLAG_ORDNING.get(b["utslag"], 9), b["antal_roda"], b["antal_gula"], b["forening"] or "")
+        return (99, 0, "")
+    return (UTSLAG_ORDNING.get(b["utslag"], 9), -(b.get("poang") or 0), b["forening"] or "")
 
 
 def rader_for_oversikt(bedomningar, annonser):
@@ -119,6 +119,12 @@ def formatera_flik(ark):
     ark.row_dimensions[1].height = 15 * rader_i_rubrik
 
 
+# Beslutskolumnerna står först, direkt efter adressen
+BESLUT = [("Utslag", None), ("Poäng (0–100)", "0"), ("Motivering", None), ("Datakvalitet", None)]
+MOTIVERING_BREDD = 70
+DATAKVALITET_FARG = {"Säker": "grön", "Osäker": "gul"}
+
+
 def bygg_oversikt(ark, bedomningar, annonser):
     # Nyckeltalen i den ordning de först förekommer
     nyckeltal = []
@@ -127,18 +133,20 @@ def bygg_oversikt(ark, bedomningar, annonser):
             if r["nyckeltal"] not in nyckeltal:
                 nyckeltal.append(r["nyckeltal"])
 
-    # Annonskolumner: (rubrik, talformat)
-    annonskolumner = [("Adress", None), ("Pris (kr)", "#,##0"), ("Avgift (kr/mån)", "#,##0"),
-                      ("Rum", None), ("Boarea (kvm)", None), ("Pris per kvm (kr)", "#,##0"),
+    # Annonskolumner efter beslutet: (rubrik, talformat)
+    annonskolumner = [("Pris (kr)", "#,##0"), ("Avgift (kr/mån)", "#,##0"), ("Väntad avgift (kr/mån)", "#,##0"),
                       ("Skuldjusterat pris (kr)", "#,##0"), ("Skuldjusterat pris per kvm (kr)", "#,##0"),
-                      ("Avgift efter beslutade höjningar (kr/mån)", "#,##0"),
-                      ("Väntad avgift (kr/mån)", "#,##0")]
-    fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula",
+                      ("Pris per kvm (kr)", "#,##0"), ("Avgift efter beslutade höjningar (kr/mån)", "#,##0"),
+                      ("Rum", None), ("Boarea (kvm)", None)]
+    fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Antal röda", "Antal gula",
              "Kontrollera i PDF:en"]
-    forsta_forening = len(annonskolumner) + 1  # kolumnnummer där föreningens kolumner börjar
+    kolumner = [("Adress", None)] + BESLUT + annonskolumner
+    forsta_forening = len(kolumner) + 1  # kolumnnummer där föreningens kolumner börjar
+    kol = {namn: i for i, (namn, _) in enumerate(kolumner, start=1)}
+    kol.update({namn: forsta_forening + i for i, namn in enumerate(fasta)})
     # Okänt nyckeltal (finns inte i KOLUMNER) får sitt namn som rubrik och inget talformat
     # Rader som inte räknas i utslaget (kriterier.UTSLAG_RAKNAS_EJ) märks i rubriken
-    ark.append([r for r, _ in annonskolumner] + fasta + [
+    ark.append([r for r, _ in kolumner] + fasta + [
         KOLUMNER.get(n, (n, None))[0] + (" – påverkar inte utslaget" if n in k.UTSLAG_RAKNAS_EJ else "")
         for n in nyckeltal
     ])
@@ -146,51 +154,58 @@ def bygg_oversikt(ark, bedomningar, annonser):
     for a, b in rader_for_oversikt(bedomningar, annonser):
         # Annonsdelen (tom om föreningen analyserats utan annons)
         a = a or {}
-        pris, kvm = a.get("pris"), a.get("kvm")
-        # Skuldjusterat pris: pris + lägenhetens andel av föreningens skuld (se lagenhet.py)
-        skuld_per_kvm = (b or {}).get("detaljer", {}).get("skuld_per_kvm_bostadsratt")
-        skuldjusterat = skuldjusterat_pris(pris, kvm, skuld_per_kvm)
+        pris, kvm, avgift = a.get("pris"), a.get("kvm"), a.get("avgift")
         detaljer = (b or {}).get("detaljer", {})
+        skuldjusterat = skuldjusterat_pris(pris, kvm, detaljer.get("skuld_per_kvm_bostadsratt"))
         kommande = detaljer.get("avgiftshojningar_kommande_procent")
-        vantad_ranta = detaljer.get("vantad_avgiftshojning_ranta_procent")
-        annonsdel = [a.get("adress") or a.get("annons_url"), pris, a.get("avgift"), a.get("rum"), kvm,
-                     per_kvm(pris, kvm), skuldjusterat, per_kvm(skuldjusterat, kvm),
-                     avgift_efter_hojningar(a.get("avgift"), kommande),
-                     vantad_avgift(a.get("avgift"), kommande, vantad_ranta)]
+        annonsdel = [pris, avgift, vantad_avgift(avgift, kommande, detaljer.get("vantad_avgiftshojning_ranta_procent")),
+                     skuldjusterat, per_kvm(skuldjusterat, kvm), per_kvm(pris, kvm),
+                     avgift_efter_hojningar(avgift, kommande), a.get("rum"), kvm]
+        adress = a.get("adress") or a.get("annons_url") or (b or {}).get("forening")
 
-        # Föreningsdelen (tom om annonsens förening saknar bedömning)
         if b is None:
-            ark.append(annonsdel + [None] * (len(fasta) + len(nyckeltal)))
+            ark.append([adress] + [None] * len(BESLUT) + annonsdel + [None] * (len(fasta) + len(nyckeltal)))
         else:
             per_namn = {r["nyckeltal"]: r for r in b["nyckeltal"]}
             ark.append(
-                annonsdel
-                + [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], b["utslag"], b["antal_roda"], b["antal_gula"],
+                [adress, b["utslag"], b.get("poang"), b.get("motivering"), b.get("datakvalitet")]
+                + annonsdel
+                + [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], b["antal_roda"], b["antal_gula"],
                    "; ".join(b.get("varningar") or []) or None]
                 + [per_namn[n].get("varde_tal") if n in per_namn else None for n in nyckeltal]
             )
         rad = ark.max_row
 
-        # Adressen blir en klickbar länk till annonsen; talformat på annonsens tal
+        # Adressen blir en klickbar länk till annonsen; talformat på beslut och annonsens tal
         if a.get("annons_url"):
-            cell = ark.cell(rad, 1)
+            cell = ark.cell(rad, kol["Adress"])
             cell.hyperlink = a["annons_url"]
             cell.style = "Hyperlink"
-        for i, (_, talformat) in enumerate(annonskolumner, start=1):
+        for namn, talformat in kolumner:
             if talformat:
-                ark.cell(rad, i).number_format = talformat
+                ark.cell(rad, kol[namn]).number_format = talformat
 
         if b is None:
             continue
-        # Färga utslaget
-        ark.cell(rad, forsta_forening + fasta.index("Utslag")).fill = FARGER[UTSLAG_FARG.get(b["utslag"], "saknas")]
+        # Beslutet: färgat utslag och datakvalitet, radbruten motivering
+        utslag_cell = ark.cell(rad, kol["Utslag"])
+        utslag_cell.fill = FARGER[UTSLAG_FARG.get(b["utslag"], "saknas")]
+        utslag_cell.font = Font(bold=True)
+        ark.cell(rad, kol["Poäng (0–100)"]).fill = FARGER[UTSLAG_FARG.get(b["utslag"], "saknas")]
+        ark.cell(rad, kol["Motivering"]).alignment = Alignment(wrap_text=True, vertical="top")
+        # Radhöjd så att hela motiveringen syns (ca 15 punkter per textrad)
+        ark.row_dimensions[rad].height = 15 * max(1, -(-len(b.get("motivering") or "") // (MOTIVERING_BREDD - 5)))
+        kvalitet = ark.cell(rad, kol["Datakvalitet"])
+        kvalitet.fill = FARGER[DATAKVALITET_FARG.get(b.get("datakvalitet"), "saknas")]
+        if b.get("datakvalitet_forklaring"):
+            kvalitet.comment = Comment(b["datakvalitet_forklaring"], "bostadsanalys", width=300, height=80)
         # Rimlighetsvarningar markeras gula
         if b.get("varningar"):
-            ark.cell(rad, forsta_forening + fasta.index("Kontrollera i PDF:en")).fill = FARGER["gul"]
+            ark.cell(rad, kol["Kontrollera i PDF:en"]).fill = FARGER["gul"]
         # Föreningens namn länkar till PDF:en (relativt Excel-filen i output/)
         pdf = Path(a.get("pdf_fil") or PDF_DIR / f"{b.get('_stam')}.pdf")
         if pdf.exists():
-            cell = ark.cell(rad, forsta_forening + fasta.index("Förening"))
+            cell = ark.cell(rad, kol["Förening"])
             cell.hyperlink = str(Path("..") / pdf)
             cell.style = "Hyperlink"
         # Talformat och färg för varje nyckeltal (grå om det saknas)
@@ -212,6 +227,9 @@ def bygg_oversikt(ark, bedomningar, annonser):
                 cell.fill = FARGER.get(farg, FARGER["saknas"])
 
     formatera_flik(ark)
+    # Motiveringen får en fast bredd och radbryts, i stället för en jättebred kolumn
+    ark.column_dimensions[get_column_letter(kol["Motivering"])].width = MOTIVERING_BREDD
+    ark.freeze_panes = ark.cell(2, kol["Utslag"])  # rubrikraden och adressen står kvar vid scroll
 
 
 def bygg_fragor(ark, bedomningar):

@@ -220,7 +220,8 @@ def main():
     # 5. Sammanfattning
     print(f"\n{'=' * 50}")
     print(f"Förening: {resultat['forening']}")
-    print(f"Utslag:   {resultat['utslag']} ({resultat['antal_roda']} röda, {resultat['antal_gula']} gula)")
+    print(f"Utslag:   {resultat['utslag']} ({resultat['poang']}/100), datakvalitet {resultat['datakvalitet'].lower()}")
+    print(f"          {resultat['motivering']}")
     print(f"Excel uppdaterad: {export_excel.UTFIL}")
 
 

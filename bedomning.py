@@ -14,6 +14,7 @@ from pathlib import Path
 
 import kriterier as k
 import rimlighet
+import utslag as utslagsmodul
 
 GRON, GUL, ROD, SAKNAS = "grön", "gul", "röd", "saknas"
 INFO = "info"  # informationsrad utan färg – påverkar inte utslaget
@@ -978,15 +979,13 @@ def bedom(data, idag):
             r["kommentar"] += " (Påverkar inte utslaget.)"
             r["fraga_till_maklare"] = None  # aldrig mäklarfrågor för rader utanför utslaget
 
-    # Utslag – "saknas" räknas som färgen i SAKNAS_RAKNAS_SOM
+    # Korta risktexter till motiveringen (övriga rader får "<nyckeltal> <värde>")
+    satt_korta_texter(rader, hojn, resultat, delar, atgarder, plan_saknas and not plan_okand)
+
+    # Utslag: stoppfaktorer, viktad poäng, motivering och datakvalitet (utslag.py)
     farger = [k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"] for r in rader if r["raknas_i_utslag"]]
     roda, gula = farger.count(ROD), farger.count(GUL)
-    if roda >= k.UTSLAG_SORTERA_BORT_MIN_RODA:
-        utslag = "SORTERA BORT"
-    elif roda >= k.UTSLAG_AVVAKTA_MIN_RODA or gula >= k.UTSLAG_AVVAKTA_MIN_GULA:
-        utslag = "AVVAKTA"
-    else:
-        utslag = "GÅ VIDARE"
+    beslut = utslagsmodul.bedom_utslag(rader, varningar, resultat["vantad_avgiftshojning"] if resultat else None)
 
     return {
         "forening": v(data, "foreningens_namn"),
@@ -1009,7 +1008,12 @@ def bedom(data, idag):
             "stora_renoveringar": atgarder,
             "byggdelar": delar,
         },
-        "utslag": utslag,
+        "utslag": beslut["utslag"],
+        "poang": beslut["poang"],
+        "motivering": beslut["motivering"],
+        "stoppfaktorer": beslut["stoppfaktorer"],
+        "datakvalitet": beslut["datakvalitet"],
+        "datakvalitet_forklaring": beslut["datakvalitet_forklaring"],
         "antal_roda": roda,
         "antal_gula": gula,
         "antal_saknas": [r["farg"] for r in rader if r["raknas_i_utslag"]].count(SAKNAS),
@@ -1017,6 +1021,42 @@ def bedom(data, idag):
         "fragor_till_maklare": [r["fraga_till_maklare"] for r in rader if r["fraga_till_maklare"]],
         "varningar": varningar,
     }
+
+
+def satt_korta_texter(rader, hojn, rantor, delar, atgarder, plan_saknas):
+    """Sätt r["kort"] – en kort risktext för motiveringen – på rader där standardtexten
+    ("<nyckeltal> <värde>") blir för lång eller otydlig."""
+    per_namn = {r["nyckeltal"]: r for r in rader}
+    fonster = k.AVGIFTSHOJNING_HISTORIK_MANADER
+    if hojn and "Avgiftshöjningar" in per_namn:
+        if hojn["kommande"]:
+            per_namn["Avgiftshöjningar"]["kort"] = f"beslutade avgiftshöjningar {hojningstext(hojn['kommande'])}"
+        elif hojn["senaste_procent"]:
+            per_namn["Avgiftshöjningar"]["kort"] = (f"avgiften höjd {tal(hojn['senaste_procent'], 0, '%')} "
+                                                    f"senaste {fonster} mån")
+    if rantor and "Räntebindning" in per_namn:
+        if redan_omforhandlad(rantor):
+            per_namn["Räntebindning"]["kort"] = "lån villkorsändrade efter rapporten till okänd ränta"
+        elif rantor["ranta_saknas"]:
+            per_namn["Räntebindning"]["kort"] = "räntan saknas för lån som villkorsändras"
+        elif rantor["vantad_avgiftshojning"]:
+            per_namn["Räntebindning"]["kort"] = (f"väntad avgiftshöjning ca {tal(rantor['vantad_avgiftshojning'], 0, '%')} "
+                                                 "när lånen villkorsändras")
+    if delar and "Byggdelar" in per_namn:
+        okanda = [k.BYGGDELAR[n]["namn"].split(" (")[0].lower() for n, i in delar.items()
+                  if farg_byggdel(n, i) != GRON and i["ar"] is None]
+        gamla = [f"{k.BYGGDELAR[n]['namn'].split(' (')[0].lower()} {i['ar']}" for n, i in delar.items()
+                 if farg_byggdel(n, i) != GRON and i["ar"] is not None]
+        delar_text = ([f"{', '.join(gamla)} (gammalt)"] if gamla else []) + \
+                     ([f"okänd ålder på {', '.join(okanda)}"] if okanda else [])
+        if delar_text:
+            per_namn["Byggdelar"]["kort"] = "; ".join(delar_text)
+    if "Renoveringar" in per_namn:
+        if atgarder:
+            per_namn["Renoveringar"]["kort"] = (f"stora renoveringar inom {k.RENOVERINGAR_HORISONT_AR} år: "
+                                                + "; ".join(atgarder[:2]) + (" m.fl." if len(atgarder) > 2 else ""))
+        elif plan_saknas:
+            per_namn["Renoveringar"]["kort"] = "ingen underhållsplan redovisas"
 
 
 # --- Utskrift ----------------------------------------------------------------
@@ -1066,8 +1106,8 @@ def bedom_fil(sokvag: Path, idag: date) -> dict:
 
     print(f"{resultat['forening']} – räkenskapsår t.o.m. {resultat['rakenskapsar_slut']} (bedömt {idag})\n")
     skriv_tabell(resultat)
-    print(f"\nUtslag: {resultat['utslag']}  ({resultat['antal_roda']} röda, {resultat['antal_gula']} gula"
-          f"{', varav ' + str(resultat['antal_saknas']) + ' saknas' if resultat['antal_saknas'] else ''})")
+    print(f"\n{resultat['motivering']}")
+    print(f"Datakvalitet: {resultat['datakvalitet']} ({resultat['datakvalitet_forklaring']})")
     if resultat["raknas_ej_i_utslag"]:
         print(f"* Räknas inte i utslaget: {', '.join(resultat['raknas_ej_i_utslag'])}")
     if resultat["varningar"]:

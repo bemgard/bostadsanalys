@@ -24,6 +24,7 @@ uppdaterar Excel.
 | `extract_report.py` | PDF → JSON med Claude (tool use + `validera()`); `--force` kör om |
 | `bedomning.py` | Nyckeltal, färger, utslag och mäklarfrågor |
 | `kriterier.py` | Alla gränsvärden och nyckelord – ändra gränser här, inte i koden |
+| `utslag.py` | Utslaget: stoppfaktorer, viktad poäng 0–100, motivering och datakvalitet |
 | `rimlighet.py` | Rimlighetskontroller av extraktionen (ytor, lånenot, typer, sidnummer) – varnar, ändrar inte färger |
 | `lagenhet.py` | Nyckeltal för lägenheten (skuldjusterat pris, avgift efter beslutade höjningar) |
 | `export_excel.py` | Bygger `output/bostadsanalys.xlsx` (en rad per annons) |
@@ -44,5 +45,6 @@ venv/bin/python tests/test_lagenhet.py
 venv/bin/python tests/test_rimlighet.py
 venv/bin/python tests/test_avgiftshojningar.py
 venv/bin/python tests/test_avgiftsniva.py
+venv/bin/python tests/test_utslag.py
 node bokmarke/test_bokmarke.js
 ```
