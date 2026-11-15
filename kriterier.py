@@ -179,6 +179,17 @@ REVISORN_UPPLYSNING_FARG = "gul"
 # Påverkar INTE färgen – är bara en varning om att något bör kontrolleras.
 KONTROLLRAKNING_TOLERANS_PROCENT = 10
 
+# --- Rimlighetskontroller -------------------------------------------------------
+# Fångar troliga felavläsningar i extraktionen (rimlighet.py). Påverkar INTE färgen –
+# ger en varning om att siffran bör kontrolleras i PDF:en.
+# Hur mycket två siffror som borde stämma (t.ex. ytor, lånenot mot balansräkning)
+# får skilja sig, i procent.
+RIMLIGHET_TOLERANS_PROCENT = 5
+# Högsta rimliga räntesats på ett föreningslån (%)
+RIMLIGHET_MAX_RANTA_PROCENT = 15
+# Rimlig längd på ett räkenskapsår i månader (min, max) – första året kan vara förlängt
+RIMLIGHET_RAKENSKAPSAR_MANADER = (6, 18)
+
 # --- Saknade värden --------------------------------------------------------------
 # Om ett nyckeltal inte kan räknas fram (indata saknas i årsredovisningen)
 # räknas det som denna färg i utslaget.

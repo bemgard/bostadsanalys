@@ -13,6 +13,7 @@ from datetime import date
 from pathlib import Path
 
 import kriterier as k
+import rimlighet
 
 GRON, GUL, ROD, SAKNAS = "grön", "gul", "röd", "saknas"
 INFO = "info"  # informationsrad utan färg – påverkar inte utslaget
@@ -464,6 +465,26 @@ def farg_revisorn(anmarkning, upplysning):
 
 # --- Kontrollräkning ---------------------------------------------------------
 
+def sidor(data, falten):
+    """Alla sidnummer (sorterade) som fälten hämtats från, även inuti listor och delobjekt."""
+    hittade = set()
+
+    def samla(x):
+        if isinstance(x, dict):
+            if isinstance(x.get("sida"), int):
+                hittade.add(x["sida"])
+            for varde in x.values():
+                if isinstance(varde, (dict, list)):
+                    samla(varde)
+        elif isinstance(x, list):
+            for post in x:
+                samla(post)
+
+    for falt in falten:
+        samla(data.get(falt))
+    return sorted(hittade)
+
+
 def avvikelse_procent(vart, foreningens):
     """Hur många procent vårt värde avviker från föreningens, eller None om det inte går att jämföra."""
     if vart is None or foreningens is None or foreningens == 0:
@@ -747,6 +768,15 @@ def bedom(data, idag):
             r["kommentar"] = ALDRE_EXTRAKTION
             r["fraga_till_maklare"] = None
 
+    # Sidhänvisningar: varifrån i PDF:en varje rad hämtat sina uppgifter
+    for r in rader:
+        r["sidor"] = sidor(data, BEROENDEN.get(r["nyckeltal"], ()))
+
+    # Rimlighetsvarningar: troliga felavläsningar + egna nyckeltal som avviker från föreningens
+    varningar = rimlighet.kontrollera(data, total_skuld(data))
+    varningar += [f"{r['nyckeltal']}: egen uträkning avviker {tal(r['avvikelse_procent'], 1)} % "
+                  "från föreningens siffra." for r in rader if r["avvikelse"]]
+
     # Rader som inte räknas i utslaget märks, så att det syns i terminal och Excel
     for r in rader:
         r["raknas_i_utslag"] = r["nyckeltal"] not in k.UTSLAG_RAKNAS_EJ and r["farg"] != INFO
@@ -787,6 +817,7 @@ def bedom(data, idag):
         "antal_saknas": [r["farg"] for r in rader if r["raknas_i_utslag"]].count(SAKNAS),
         "raknas_ej_i_utslag": [r["nyckeltal"] for r in rader if r["nyckeltal"] in k.UTSLAG_RAKNAS_EJ],
         "fragor_till_maklare": [r["fraga_till_maklare"] for r in rader if r["fraga_till_maklare"]],
+        "varningar": varningar,
     }
 
 
@@ -841,6 +872,10 @@ def bedom_fil(sokvag: Path, idag: date) -> dict:
           f"{', varav ' + str(resultat['antal_saknas']) + ' saknas' if resultat['antal_saknas'] else ''})")
     if resultat["raknas_ej_i_utslag"]:
         print(f"* Räknas inte i utslaget: {', '.join(resultat['raknas_ej_i_utslag'])}")
+    if resultat["varningar"]:
+        print("\n⚠️  Kontrollera i PDF:en:")
+        for varning in resultat["varningar"]:
+            print(f"  - {varning}")
     print("\nFrågor till mäklaren:")
     for i, fraga in enumerate(resultat["fragor_till_maklare"], 1):
         print(f"  {i}. {fraga}")

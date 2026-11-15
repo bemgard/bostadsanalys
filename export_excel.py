@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -19,6 +20,7 @@ from lagenhet import per_kvm, skuldjusterat_pris
 BEDOMNING_DIR = Path("data/bedomning")
 ANNONSER_FIL = Path("data/annonser.json")
 UTFIL = Path("output/bostadsanalys.xlsx")
+PDF_DIR = Path("data/pdfs")
 
 # Kolumnrubrik (med enhet) och Excel-talformat per nyckeltal.
 # Format None = texten skrivs som den är (tomträtt, revisorn).
@@ -59,7 +61,9 @@ def las_bedomningar():
     bedomningar = []
     for fil in sorted(BEDOMNING_DIR.glob("*.json")):
         try:
-            bedomningar.append(json.loads(fil.read_text(encoding="utf-8")))
+            b = json.loads(fil.read_text(encoding="utf-8"))
+            b["_stam"] = fil.stem  # samma stam som PDF:en och extraktionen
+            bedomningar.append(b)
         except json.JSONDecodeError as e:
             sys.exit(f"{fil} är inte giltig JSON: {e}")
     return bedomningar
@@ -126,7 +130,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
     annonskolumner = [("Adress", None), ("Pris (kr)", "#,##0"), ("Avgift (kr/mån)", "#,##0"),
                       ("Rum", None), ("Boarea (kvm)", None), ("Pris per kvm (kr)", "#,##0"),
                       ("Skuldjusterat pris (kr)", "#,##0"), ("Skuldjusterat pris per kvm (kr)", "#,##0")]
-    fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula"]
+    fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Utslag", "Antal röda", "Antal gula",
+             "Kontrollera i PDF:en"]
     forsta_forening = len(annonskolumner) + 1  # kolumnnummer där föreningens kolumner börjar
     # Okänt nyckeltal (finns inte i KOLUMNER) får sitt namn som rubrik och inget talformat
     # Rader som inte räknas i utslaget (kriterier.UTSLAG_RAKNAS_EJ) märks i rubriken
@@ -152,7 +157,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
             per_namn = {r["nyckeltal"]: r for r in b["nyckeltal"]}
             ark.append(
                 annonsdel
-                + [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], b["utslag"], b["antal_roda"], b["antal_gula"]]
+                + [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], b["utslag"], b["antal_roda"], b["antal_gula"],
+                   "; ".join(b.get("varningar") or []) or None]
                 + [per_namn[n].get("varde_tal") if n in per_namn else None for n in nyckeltal]
             )
         rad = ark.max_row
@@ -170,6 +176,15 @@ def bygg_oversikt(ark, bedomningar, annonser):
             continue
         # Färga utslaget
         ark.cell(rad, forsta_forening + fasta.index("Utslag")).fill = FARGER[UTSLAG_FARG.get(b["utslag"], "saknas")]
+        # Rimlighetsvarningar markeras gula
+        if b.get("varningar"):
+            ark.cell(rad, forsta_forening + fasta.index("Kontrollera i PDF:en")).fill = FARGER["gul"]
+        # Föreningens namn länkar till PDF:en (relativt Excel-filen i output/)
+        pdf = Path(a.get("pdf_fil") or PDF_DIR / f"{b.get('_stam')}.pdf")
+        if pdf.exists():
+            cell = ark.cell(rad, forsta_forening + fasta.index("Förening"))
+            cell.hyperlink = str(Path("..") / pdf)
+            cell.style = "Hyperlink"
         # Talformat och färg för varje nyckeltal (grå om det saknas)
         for i, n in enumerate(nyckeltal, start=forsta_forening + len(fasta)):
             cell = ark.cell(rad, i)
@@ -177,6 +192,14 @@ def bygg_oversikt(ark, bedomningar, annonser):
             if talformat:
                 cell.number_format = talformat
             farg = per_namn[n]["farg"] if n in per_namn else "saknas"
+            # Kommentar: förklaringen och var i PDF:en uppgiften står
+            if n in per_namn:
+                sidorna = per_namn[n].get("sidor") or []
+                text = per_namn[n].get("kommentar") or ""
+                if sidorna:
+                    text += f"\n\nPDF:en sida {', '.join(str(x) for x in sidorna)}"
+                if text:
+                    cell.comment = Comment(text, "bostadsanalys", width=300, height=120)
             if farg != "info":  # informationsrader får ingen färg
                 cell.fill = FARGER.get(farg, FARGER["saknas"])
 
