@@ -133,8 +133,52 @@ def skuld_per_kvm_bostadsratt(data):
     return None, "skuld eller bostadsrättsyta saknas"
 
 
-def rantekanslighet_procent(data):
-    skuld, avgifter = total_skuld(data), v(data, "arsavgifter_bostader")
+def avgiftsniva_faktor(data, idag):
+    """(faktor, höjningar) där årsavgifterna enligt rapporten × faktor = föreningens årliga
+    avgiftsnivå idag. Årsavgifterna i rapporten är vad som togs in UNDER räkenskapsåret, så:
+      - en höjning mitt i året finns bara med för resten av året (räknas upp till helår)
+      - höjningar efter räkenskapsårets slut men senast idag finns inte med alls
+    Bara höjningar med känt datum och känd procent räknas; samma höjning i båda listorna
+    räknas en gång. höjningar = [(procent, datum)] som påverkade faktorn.
+    Faktor 1.0 om inget behöver justeras eller räkenskapsåret saknas."""
+    ar = data.get("rakenskapsar") or {}
+    start = till_datum((ar.get("start") or {}).get("varde"))
+    slut = rakenskapsar_slut(data)
+    if start is None or slut is None or idag is None or slut < start:
+        return 1.0, []
+    poster = {(p.get("procent"), till_datum(p.get("fran_datum")))
+              for lista in ("genomforda_avgiftshojningar", "planerade_avgiftshojningar")
+              for p in data.get(lista) or [] if isinstance(p, dict)}
+    poster = sorted(((pr, d) for pr, d in poster if pr is not None and d is not None and start < d <= idag),
+                    key=lambda h: h[1])
+
+    # Under året: genomsnittlig nivå (relativt nivån vid årets start) vägd efter antal dagar
+    dagar = (slut - start).days + 1
+    niva, snitt, fran = 1.0, 0.0, start
+    for pr, d in (h for h in poster if h[1] <= slut):
+        snitt += niva * (d - fran).days
+        niva *= 1 + pr / 100
+        fran = d
+    snitt = (snitt + niva * ((slut - fran).days + 1)) / dagar
+    faktor = niva / snitt  # nivån vid årets slut / genomsnittet under året
+    # Efter årets slut, fram till idag
+    for pr, d in (h for h in poster if h[1] > slut):
+        faktor *= 1 + pr / 100
+    return faktor, poster
+
+
+def arsavgifter_idag(data, idag):
+    """Årsavgifterna uppräknade till dagens nivå (se avgiftsniva_faktor), eller None."""
+    avgifter = v(data, "arsavgifter_bostader")
+    if not avgifter:
+        return None
+    return avgifter * avgiftsniva_faktor(data, idag)[0]
+
+
+def rantekanslighet_procent(data, idag=None):
+    """Skuld × 1 % / årsavgifterna. Med idag: på dagens avgiftsnivå (höjningar inräknade)."""
+    skuld = total_skuld(data)
+    avgifter = arsavgifter_idag(data, idag) if idag else v(data, "arsavgifter_bostader")
     if skuld is None or not avgifter:
         return None
     return skuld * 0.01 / avgifter * 100
@@ -145,8 +189,10 @@ def sparande_per_kvm(data):
     return v(data, "sparande_per_kvm")
 
 
-def avgift_per_kvm(data):
-    avgifter, yta = v(data, "arsavgifter_bostader"), v(data, "bostadsyta_kvm")
+def avgift_per_kvm(data, idag=None):
+    """Årsavgifter / bostadsyta. Med idag: på dagens avgiftsnivå (höjningar inräknade)."""
+    avgifter = arsavgifter_idag(data, idag) if idag else v(data, "arsavgifter_bostader")
+    yta = v(data, "bostadsyta_kvm")
     if avgifter is None or not yta:
         return None
     return avgifter / yta
@@ -270,7 +316,7 @@ def rantebindning(data, idag=None):
             if idag is None or till_datum(l.get("villkorsandringsdag")) is None
             or till_datum(l.get("villkorsandringsdag")) >= idag]
     passerade = [l for l in inom if l not in kvar]
-    avgifter = v(data, "arsavgifter_bostader")
+    avgifter = arsavgifter_idag(data, idag) if idag else v(data, "arsavgifter_bostader")
     return {
         "andel": sum(l["belopp"] for l in inom) / skuld * 100,
         "snittranta": viktad_ranta(inom),
@@ -623,8 +669,16 @@ def bedom(data, idag):
         avvikelse_procent(x, f) if egen else None, varde_tal=avrunda(x),
     ))
 
+    # Avgiftsnivå idag: årsavgifterna räknas upp för höjningar under och efter räkenskapsåret.
+    # Kontrollräkningen mot föreningens siffror görs på rapportens nivå (samma underlag).
+    faktor, justerande = avgiftsniva_faktor(data, idag)
+    justerat = abs(faktor - 1) > 0.005
+    justering = (f" Räknat på dagens avgiftsnivå: höjningarna {hojningstext(justerande)} ger "
+                 f"{tal((faktor - 1) * 100, 0, '%')} högre årsavgifter än i rapporten.") if justerat else ""
+
     # Räntekänslighet
-    x, f = rantekanslighet_procent(data), v(data, "rantekanslighet_procent")
+    x, f = rantekanslighet_procent(data, idag), v(data, "rantekanslighet_procent")
+    x_rapport = rantekanslighet_procent(data)
     rader.append(rad(
         "Räntekänslighet", tal(x, 1, "%"), tal(f, 1, "%"), farg_rantekanslighet(x),
         {GRON: "Avgiften tål räntehöjningar väl.",
@@ -632,8 +686,10 @@ def bedom(data, idag):
          ROD: "Avgiften är mycket känslig för räntehöjningar."},
         f"En räntehöjning på 1 procentenhet motsvarar {tal(x, 1, '%')} av årsavgifterna. "
         "Hur har styrelsen budgeterat för högre räntor?",
-        avvikelse_procent(x, f), varde_tal=avrunda(x, 1),
+        avvikelse_procent(x_rapport, f), varde_tal=avrunda(x, 1),
     ))
+    if justerat and rader[-1]["farg"] != SAKNAS:
+        rader[-1]["kommentar"] += justering + f" Enligt rapportens nivå: {tal(x_rapport, 1, '%')}."
 
     # Sparande per kvm (föreningens egen siffra)
     sparande = sparande_per_kvm(data)
@@ -648,14 +704,17 @@ def bedom(data, idag):
     ))
 
     # Avgift per kvm
-    x, f = avgift_per_kvm(data), v(data, "arsavgift_per_kvm")
+    x, f = avgift_per_kvm(data, idag), v(data, "arsavgift_per_kvm")
+    x_rapport = avgift_per_kvm(data)
     intervall = f"{k.AVGIFT_PER_KVM_GRON_MIN}–{k.AVGIFT_PER_KVM_GRON_MAX} kr/kvm"
     rader.append(rad(
         "Avgift per kvm", tal(x, 0, "kr/kvm"), tal(f, 0, "kr/kvm"), farg_avgift(x),
         {GRON: f"Inom normalintervallet {intervall}.", GUL: f"Utanför normalintervallet {intervall}."},
         f"Avgiften är {tal(x, 0, 'kr/kvm')}, utanför normalintervallet. Vad beror det på, och är fler höjningar planerade?",
-        avvikelse_procent(x, f), varde_tal=avrunda(x),
+        avvikelse_procent(x_rapport, f), varde_tal=avrunda(x),
     ))
+    if justerat and rader[-1]["farg"] != SAKNAS:
+        rader[-1]["kommentar"] += justering + f" Enligt rapportens nivå: {tal(x_rapport, 0, 'kr/kvm')}."
 
     # Avgiftshöjningar – kommande slår direkt mot din månadskostnad, stora senaste tyder på press
     hojn = avgiftshojningar(data, idag)
@@ -939,6 +998,7 @@ def bedom(data, idag):
             "total_skuld": total_skuld(data),
             "total_skuld_forklaring": total_skuld_med_forklaring(data)[1],
             "likvida_medel_per_kvm": likvida,
+            "avgiftsniva_faktor": round(faktor, 4),
             "vantad_avgiftshojning_ranta_procent": avrunda(resultat["vantad_avgiftshojning"], 2) if resultat else None,
             "avgiftshojningar_kommande_procent": avrunda(hojn["kommande_procent"], 2) if hojn else None,
             "avgiftshojningar_kommande_osaker": hojn["kommande_osaker"] if hojn else None,

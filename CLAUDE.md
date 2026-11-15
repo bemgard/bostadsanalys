@@ -43,5 +43,6 @@ venv/bin/python tests/test_pdf_namn.py
 venv/bin/python tests/test_lagenhet.py
 venv/bin/python tests/test_rimlighet.py
 venv/bin/python tests/test_avgiftshojningar.py
+venv/bin/python tests/test_avgiftsniva.py
 node bokmarke/test_bokmarke.js
 ```
