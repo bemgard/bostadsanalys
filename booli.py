@@ -184,18 +184,50 @@ def las_annons(html_text: str, url: str) -> dict:
     }
 
 
+def _inbaddade_dokument(html_text: str) -> list[str]:
+    """Dokumentlänkar i sidans inbäddade data (Next.js skickar datan som JSON-strängar i
+    <script>, med / skrivet som \\/ eller \\u002F). I den ordning de förekommer, utan dubbletter."""
+    text = html_text.replace("\\u002F", "/").replace("\\/", "/").replace("\\\\", "\\")
+    traffar = re.findall(r"https://documents\.bcdn\.se/[A-Za-z0-9/_.\-]+\.pdf", text)
+    return list(dict.fromkeys(traffar))
+
+
 def las_forening_pdf(html_text: str) -> str | None:
     """Årsredovisningens PDF-länk: första dokumentlänken efter rubriken "Årsredovisning",
-    annars en dokumentlänk vars filnamn innehåller "rsredovisning". None om ingen finns."""
+    annars en dokumentlänk vars filnamn innehåller "rsredovisning" – först bland sidans länkar,
+    sedan i den inbäddade datan. None om ingen finns."""
     p = _tolka(html_text)
     dokument = [(pos, unescape(h).split("?")[0]) for pos, h in p.lankar if "documents.bcdn.se" in h]
     rubriker = [i for i, t in enumerate(p.text) if t == "Årsredovisning"]
     kandidater = [h for r in rubriker for pos, h in dokument if pos >= r][:1]
     kandidater += [h for _, h in dokument if re.search(r"rsredovisning", h, re.I)]
+    kandidater += [h for h in _inbaddade_dokument(html_text) if re.search(r"rsredovisning", h, re.I)]
     return next((h for h in kandidater if PDF_MONSTER.match(h)), None)
 
 
 # --- Hela flödet ---------------------------------------------------------------
+
+FELSOKNING_FIL = "output/booli_felsokning.txt"
+
+
+def _spara_felsokning(html_text: str, med_cookie: bool):
+    """Spara en sammanfattning av föreningssidan när årsredovisningen inte hittas – för att
+    se vad Booli skickar. Inga cookies sparas; bara sidans innehåll (som vem som helst ser
+    när den är inloggad) och några markörer. Skrivs över varje gång."""
+    try:
+        os.makedirs("output", exist_ok=True)
+        rader = [f"med_cookie={med_cookie}", f"längd={len(html_text)}",
+                 f"logga_in_text={'Logga in' in html_text}",
+                 f"documents.bcdn.se_förekomster={html_text.count('documents.bcdn.se')}",
+                 f"rsredovisning_förekomster={html_text.count('rsredovisning')}", ""]
+        for m in re.finditer(r".{0,300}(documents\.bcdn|rsredovisning|graphql|document).{0,300}", html_text):
+            rader.append(m.group(0))
+            if len(rader) > 80:
+                break
+        with open(FELSOKNING_FIL, "w", encoding="utf-8") as f:
+            f.write("\n".join(rader))
+    except OSError:
+        pass
 
 def fran_annons(url: str) -> dict:
     """Läs annonsen och försök hitta årsredovisningen. Returnerar annonsuppgifterna,
@@ -209,13 +241,15 @@ def fran_annons(url: str) -> dict:
     if not sokvag:
         return {"annons": annons, "pdf_url": None,
                 "meddelande": "Annonsen har ingen länk till en bostadsrättsförening."}
-    pdf = las_forening_pdf(hamta("https://www.booli.se" + sokvag, cookie))
+    forening_html = hamta("https://www.booli.se" + sokvag, cookie)
+    pdf = las_forening_pdf(forening_html)
     meddelande = None
     if not pdf:
+        _spara_felsokning(forening_html, bool(cookie))
         meddelande = ("Hittade annonsen men inte årsredovisningen – Booli visar troligen dokumenten bara "
                       "för inloggade. Dra in PDF:en, eller koppla din Booli-inloggning."
                       if not cookie else
-                      "Hittade inte årsredovisningen, trots Booli-inloggningen. Den kan ha gått ut, "
-                      "eller så saknas årsredovisning för föreningen. Dra in PDF:en.")
+                      "Hittade inte årsredovisningen, trots Booli-inloggningen. Dra in PDF:en så länge – "
+                      "felsökningen är sparad i output/booli_felsokning.txt.")
     return {"annons": annons, "pdf_url": pdf, "forening_url": "https://www.booli.se" + sokvag,
             "meddelande": meddelande}

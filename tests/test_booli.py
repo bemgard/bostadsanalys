@@ -59,6 +59,10 @@ lika("reserv: filnamn med rsredovisning",
      booli.las_forening_pdf("<a href='https://documents.bcdn.se/a/b/A_rsredovisning_2024.pdf'>x</a>"),
      "https://documents.bcdn.se/a/b/A_rsredovisning_2024.pdf")
 
+lika("i inbäddad Next.js-data (escapade snedstreck)",
+     booli.las_forening_pdf('<script>self.__next_f.push([1,"\\"url\\":\\"https:\\u002F\\u002Fdocuments.bcdn.se\\u002Fa\\u002FA_rsredovisning_2025.pdf\\""])</script>'),
+     "https://documents.bcdn.se/a/A_rsredovisning_2025.pdf")
+
 print("\nHela flödet (utan nätverk)")
 sidor = {"https://www.booli.se/bostad/1": ANNONS, "https://www.booli.se/bostadsrattsforening/12345": FORENING}
 booli.hamta = lambda url, cookie=None: sidor[url]
