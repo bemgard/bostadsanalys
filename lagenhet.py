@@ -45,3 +45,23 @@ def vantad_avgift(avgift, kommande_procent, vantad_ranta_procent):
     if avgift is None or not hojningar:
         return None
     return round(avgift * (1 + max(hojningar) / 100))
+
+
+def annonsnyckeltal(annons, bedomning):
+    """Lägenhetens nyckeltal för en annons och föreningens bedömning (båda får vara None).
+    Samma tal i Excel och i appen."""
+    annons, detaljer = annons or {}, (bedomning or {}).get("detaljer", {})
+    pris, kvm, avgift = annons.get("pris"), annons.get("kvm"), annons.get("avgift")
+    skuldjusterat = skuldjusterat_pris(pris, kvm, detaljer.get("skuld_per_kvm_bostadsratt"))
+    kommande = detaljer.get("avgiftshojningar_kommande_procent")
+    return {
+        "pris": pris,
+        "avgift": avgift,
+        "rum": annons.get("rum"),
+        "kvm": kvm,
+        "pris_per_kvm": per_kvm(pris, kvm),
+        "skuldjusterat_pris": skuldjusterat,
+        "skuldjusterat_pris_per_kvm": per_kvm(skuldjusterat, kvm),
+        "avgift_efter_beslutade_hojningar": avgift_efter_hojningar(avgift, kommande),
+        "vantad_avgift": vantad_avgift(avgift, kommande, detaljer.get("vantad_avgiftshojning_ranta_procent")),
+    }

@@ -15,6 +15,7 @@
   "use strict";
 
   var PROJEKTKATALOG = "~/Projects/bostadsanalys";
+  var APP_ADRESS = "http://localhost:8000/";
   var LAGRINGSNYCKEL = "bostadsanalys_annons";
   var MAX_ALDER_MS = 30 * 60 * 1000; // annonsuppgifter äldre än 30 min används inte
   var ADRESS_MAX_TECKEN = 100;
@@ -191,6 +192,34 @@
     return delar.join(" ");
   }
 
+  // Adress som öppnar "Ny analys" i webbappen med allt ifyllt. Samma strikta kontroller
+  // som för terminalkommandot; värdena URL-kodas. null om PDF-länken har fel format.
+  function byggAppLank(pdf, annons) {
+    if (!PDF_MONSTER.test(pdf)) return null;
+    var param = ["pdf=" + encodeURIComponent(pdf)];
+    if (annons && ANNONS_MONSTER.test(annons.annons_url)) {
+      param.push("annons=" + encodeURIComponent(annons.annons_url));
+      var adress = tvattaAdress(annons.adress);
+      if (adress) param.push("adress=" + encodeURIComponent(adress));
+      var varden = { pris: heltal(annons.pris), avgift: heltal(annons.avgift),
+                     rum: decimaltal(annons.rum), kvm: decimaltal(annons.kvm) };
+      Object.keys(varden).forEach(function (n) { if (varden[n]) param.push(n + "=" + varden[n]); });
+    }
+    return APP_ADRESS + "#/ny?" + param.join("&");
+  }
+
+  // Öppna appen (OK) eller visa terminalkommandot (Avbryt)
+  function visaResultat(pdf, annons, kommando) {
+    var lank = byggAppLank(pdf, annons);
+    var saknas = saknadeAnnonsfalt(annons);
+    var obs = saknas.length ? "OBS: " + saknas.join(", ") + " saknas.\n\n" : "";
+    if (lank && confirm(obs + "Öppna analysen i appen?\n\nOK = öppna appen (starta den först)\nAvbryt = visa terminalkommandot")) {
+      window.open(lank, "_blank");
+      return;
+    }
+    visaKommando(kommando, annons);
+  }
+
   // Annonsuppgifter sparade från annonssidan – bara om de gäller just denna
   // förening och är färska. Töms alltid efter läsning.
   function hamtaSparadAnnons(sokvag) {
@@ -224,7 +253,7 @@
       .then(function (pdf) {
         var kommando = pdf ? byggKommando(pdf, annons) : null;
         if (kommando) {
-          beroenden.visa(kommando);
+          beroenden.visa(kommando, pdf);
           return "klart";
         }
         beroenden.reserv(annons);
@@ -267,7 +296,7 @@
       }
       annonsFlode(annons, {
         hamtaPdf: hamtaForeningPdf,
-        visa: function (kommando) { visaKommando(kommando, annons); },
+        visa: function (kommando, pdf) { visaResultat(pdf, annons, kommando); },
         reserv: function (a) {
           try {
             sessionStorage.setItem(LAGRINGSNYCKEL, JSON.stringify({
@@ -293,7 +322,7 @@
         alert("Årsredovisningens länk har ett oväntat format och används inte av säkerhetsskäl:\n\n" + pdf);
         return;
       }
-      visaKommando(kommando, sparad);
+      visaResultat(pdf, sparad, kommando);
       return;
     }
 
@@ -305,7 +334,7 @@
     window.__BOSTADSANALYS_TEST__({
       sidtyp: sidtyp, lasAnnons: lasAnnons, lasForeningPdf: lasForeningPdf,
       byggKommando: byggKommando, tvattaAdress: tvattaAdress,
-      annonsFlode: annonsFlode, saknadeAnnonsfalt: saknadeAnnonsfalt
+      annonsFlode: annonsFlode, saknadeAnnonsfalt: saknadeAnnonsfalt, byggAppLank: byggAppLank
     });
     return;
   }

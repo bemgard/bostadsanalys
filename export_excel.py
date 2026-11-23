@@ -15,7 +15,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 import kriterier as k
-from lagenhet import avgift_efter_hojningar, per_kvm, skuldjusterat_pris, vantad_avgift
+from lagenhet import annonsnyckeltal
 
 BEDOMNING_DIR = Path("data/bedomning")
 ANNONSER_FIL = Path("data/annonser.json")
@@ -154,13 +154,10 @@ def bygg_oversikt(ark, bedomningar, annonser):
     for a, b in rader_for_oversikt(bedomningar, annonser):
         # Annonsdelen (tom om föreningen analyserats utan annons)
         a = a or {}
-        pris, kvm, avgift = a.get("pris"), a.get("kvm"), a.get("avgift")
-        detaljer = (b or {}).get("detaljer", {})
-        skuldjusterat = skuldjusterat_pris(pris, kvm, detaljer.get("skuld_per_kvm_bostadsratt"))
-        kommande = detaljer.get("avgiftshojningar_kommande_procent")
-        annonsdel = [pris, avgift, vantad_avgift(avgift, kommande, detaljer.get("vantad_avgiftshojning_ranta_procent")),
-                     skuldjusterat, per_kvm(skuldjusterat, kvm), per_kvm(pris, kvm),
-                     avgift_efter_hojningar(avgift, kommande), a.get("rum"), kvm]
+        t = annonsnyckeltal(a, b)
+        annonsdel = [t["pris"], t["avgift"], t["vantad_avgift"], t["skuldjusterat_pris"],
+                     t["skuldjusterat_pris_per_kvm"], t["pris_per_kvm"], t["avgift_efter_beslutade_hojningar"],
+                     t["rum"], t["kvm"]]
         adress = a.get("adress") or a.get("annons_url") or (b or {}).get("forening")
 
         if b is None:

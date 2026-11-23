@@ -1,13 +1,14 @@
 """
 Kör hela kedjan med ett kommando: (nedladdning) → extraktion → bedömning → Excel.
-Kör: python analysera.py "<länk till årsredovisning-PDF>" [annonsuppgifter]
+Kör: python analysera.py "<länk till årsredovisning-PDF>" [annonsuppgifter] [--excel]
      python analysera.py data/pdfs/<fil>.pdf [annonsuppgifter]
 
 Annonsuppgifter (valfria, sparas i data/annonser.json och visas i Excel):
      --annons <booli-url> --adress <text> --pris <heltal> --avgift <heltal> --rum <tal> --kvm <tal>
 
 Extraktionen (Claude-API:t) kostar pengar och körs bara efter att du svarat ja.
-Alla andra steg är gratis.
+Alla andra steg är gratis. --excel bygger även output/bostadsanalys.xlsx (valfritt).
+Resultatet syns i webbgränssnittet: venv/bin/python -m uvicorn app.server:app --port 8000
 """
 
 import argparse
@@ -180,6 +181,7 @@ def main():
     parser.add_argument("--avgift", help="Månadsavgift i kr (heltal)")
     parser.add_argument("--rum", help="Antal rum (tal)")
     parser.add_argument("--kvm", help="Boarea i kvm (tal)")
+    parser.add_argument("--excel", action="store_true", help="Bygg även Excel-filen (valfritt)")
     args = parser.parse_args()
     indata = args.indata
 
@@ -214,15 +216,18 @@ def main():
         spara_annons(annons, resultat.get("org_nr"), pdf)
 
     # 4. Excel-export
-    print("\n== 4. Excel")
-    export_excel.main()
+    if args.excel:
+        print("\n== 4. Excel")
+        export_excel.main()
 
     # 5. Sammanfattning
     print(f"\n{'=' * 50}")
     print(f"Förening: {resultat['forening']}")
     print(f"Utslag:   {resultat['utslag']} ({resultat['poang']}/100), datakvalitet {resultat['datakvalitet'].lower()}")
     print(f"          {resultat['motivering']}")
-    print(f"Excel uppdaterad: {export_excel.UTFIL}")
+    if args.excel:
+        print(f"Excel uppdaterad: {export_excel.UTFIL}")
+    print("Se resultatet i appen: http://localhost:8000")
 
 
 if __name__ == "__main__":

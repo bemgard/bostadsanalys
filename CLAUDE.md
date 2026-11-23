@@ -14,6 +14,11 @@ utslag: GÅ VIDARE, AVVAKTA eller SORTERA BORT, med frågor till mäklaren.
 PDF:en (med sidnummer, null om något saknas, aldrig gissat eller uträknat). Alla nyckeltal, färger
 och utslag räknas i Python mot gränserna i kriterier.py.
 
+**Webbappen** (`app/`): `venv/bin/python -m uvicorn app.server:app --port 8000` → http://localhost:8000.
+FastAPI-server (`app/server.py`) runt samma kedja + statiskt gränssnitt (`app/static/`, inget byggsteg).
+Extraktionen körs bara efter att användaren bekräftat kostnaden i appen. Excel är valfritt
+(knapp i appen, `--excel` i terminalen).
+
 **Arbetsflöde:** bokmärket på Booli (annons → föreningssida) kopierar ett kommando →
 `analysera.py` laddar ner PDF:en, extraherar (frågar först, kostar ca 1–2 kr), bedömer och
 uppdaterar Excel.
@@ -27,6 +32,8 @@ uppdaterar Excel.
 | `utslag.py` | Utslaget: stoppfaktorer, viktad poäng 0–100, motivering och datakvalitet |
 | `rimlighet.py` | Rimlighetskontroller av extraktionen (ytor, lånenot, typer, sidnummer) – varnar, ändrar inte färger |
 | `lagenhet.py` | Nyckeltal för lägenheten (skuldjusterat pris, avgift efter beslutade höjningar) |
+| `app/server.py` | Webbappens API – ingen analyslogik, bara kedjan ovan |
+| `app/static/` | Gränssnittet: översikt, ny analys (dropzon), resultat med bubblor |
 | `export_excel.py` | Bygger `output/bostadsanalys.xlsx` (en rad per annons) |
 | `bokmarke/` | Bokmärket (`bostadsanalys.js`), `bygg.py` → `installera.html` |
 
@@ -46,5 +53,6 @@ venv/bin/python tests/test_rimlighet.py
 venv/bin/python tests/test_avgiftshojningar.py
 venv/bin/python tests/test_avgiftsniva.py
 venv/bin/python tests/test_utslag.py
+venv/bin/python tests/test_server.py   # kräver fastapi + httpx
 node bokmarke/test_bokmarke.js
 ```

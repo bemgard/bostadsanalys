@@ -110,6 +110,19 @@ const FULLT = BAS + " --annons 'https://www.booli.se/bostad/684022' --adress 'No
   lika("PDF med fel format → reserv, aldrig ett osäkert kommando",
     await flode(async () => "https://evil.example/a.pdf"), { resultat: "reserv", visa: null, reserv: "/bostadsrattsforening/46088" });
 
+  console.log("\nLänk till appen");
+  const APP = "http://localhost:8000/#/ny?pdf=" + encodeURIComponent(PDF);
+  lika("utan annons", f.byggAppLank(PDF, null), APP);
+  lika("med annons, värden tvättade och URL-kodade",
+    f.byggAppLank(PDF, { ...annons, pris: "5 995 000 kr", kvm: "63,5 m²" }),
+    APP + "&annons=" + encodeURIComponent("https://www.booli.se/bostad/684022") +
+    "&adress=" + encodeURIComponent("Norra Stationsgatan 117") + "&pris=5995000&avgift=4648&rum=2&kvm=63.5");
+  lika("PDF med fel format → ingen länk", f.byggAppLank("https://evil.example/a.pdf", annons), null);
+  const elakLank = f.byggAppLank(PDF, elakt);
+  lika("elak indata: bara säkra tecken i länken", /^[A-Za-z0-9%:/._#?=&~-]+$/.test(elakLank), true);
+  lika("elak indata: talen innehåller bara siffror",
+    (elakLank.match(/&(pris|avgift|rum|kvm)=[^&]*/g) || []).every((p) => /=\d+(\.\d+)?$/.test(p)), true);
+
   console.log("\ninstallera.html");
 const sida = fs.readFileSync(path.join(MAPP, "installera.html"), "utf8");
 const href = (sida.match(/href="(javascript:[^"]*)"/) || [])[1] || "";

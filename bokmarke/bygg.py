@@ -40,7 +40,9 @@ SIDA = """<!doctype html>
   <li>Logga in på Booli.</li>
   <li>Öppna en <b>annons</b> och klicka på <b>Bostadsanalys</b>. Annonsens uppgifter läses och
       föreningens årsredovisning hämtas i bakgrunden.</li>
-  <li>En ruta visar ett färdigt kommando, redan markerat. Tryck <code>Cmd+C</code>.
+  <li>Välj <b>OK</b> för att öppna analysen i appen (starta den först med
+      <code>venv/bin/python -m uvicorn app.server:app --port 8000</code>), eller <b>Avbryt</b> för ett terminalkommando.</li>
+  <li>Terminalkommandot visas redan markerat. Tryck <code>Cmd+C</code>.
       <span class="liten">(Kan föreningssidan inte läsas i bakgrunden öppnas den i stället –
       klicka då på <b>Bostadsanalys</b> en gång till där.)</span></li>
   <li>Klistra in kommandot i Terminalen och tryck Enter.</li>
