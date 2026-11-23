@@ -247,6 +247,7 @@ class FranHtml(BaseModel):
     annons_url: str
     annons_html: str
     forening_html: str | None = None
+    inloggad: bool | None = None
 
 
 MAX_HTML_TECKEN = 6_000_000
@@ -262,6 +263,9 @@ def fran_html(data: FranHtml):
         resultat = booli.tolka_sidor(data.annons_url, data.annons_html, data.forening_html)
     except booli.BooliFel as e:
         raise HTTPException(400, str(e))
+    if not resultat["pdf_url"] and data.inloggad is False:
+        resultat["meddelande"] = ("Du verkar inte vara inloggad på Booli i Chrome. Logga in på booli.se "
+                                  "och dra in annonsen igen.")
     resultat["forberedd"] = None
     if resultat["pdf_url"]:
         pdf = kor(analysera.ladda_ner, resultat["pdf_url"])

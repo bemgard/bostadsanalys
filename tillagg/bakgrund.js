@@ -12,13 +12,49 @@ async function hamtaText(url) {
   return svar.text();
 }
 
+// Booli lägger in dokumentlänkarna med sidans JavaScript, och bara för inloggade. Därför
+// öppnas föreningssidan i en bakgrundsflik, vi väntar tills en dokumentlänk syns (som när du
+// själv tittar på sidan), läser sidan och stänger fliken.
+async function lasRenderadSida(url, maxMs = 15000) {
+  const flik = await chrome.tabs.create({ url, active: false });
+  try {
+    await new Promise((klar) => {
+      const lyssna = (id, info) => {
+        if (id === flik.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(lyssna); klar(); }
+      };
+      chrome.tabs.onUpdated.addListener(lyssna);
+      setTimeout(() => { chrome.tabs.onUpdated.removeListener(lyssna); klar(); }, maxMs);
+    });
+    const [resultat] = await chrome.scripting.executeScript({
+      target: { tabId: flik.id },
+      args: [maxMs],
+      func: async (vantaMs) => {
+        const start = Date.now();
+        while (Date.now() - start < vantaMs) {
+          if (document.querySelector('a[href^="https://documents.bcdn.se/"]')) break;
+          await new Promise((r) => setTimeout(r, 300));
+        }
+        return { html: document.documentElement.outerHTML,
+                 inloggad: !document.querySelector('a[aria-label^="Logga in"]') };
+      },
+    });
+    return resultat.result;
+  } finally {
+    chrome.tabs.remove(flik.id).catch(() => {});
+  }
+}
+
 async function hamtaAnnons(url) {
   url = String(url || "").split(/[?#]/)[0].replace(/\/$/, "");
   if (!ANNONS.test(url)) throw new Error("Ingen Booli-annons.");
   const annonsHtml = await hamtaText(url);
   const m = annonsHtml.match(FORENING);
-  const foreningHtml = m ? await hamtaText("https://www.booli.se" + m[0]) : null;
-  return { annons_url: url, annons_html: annonsHtml, forening_html: foreningHtml };
+  let foreningHtml = null, inloggad = null;
+  if (m) {
+    const sida = await lasRenderadSida("https://www.booli.se" + m[0]);
+    foreningHtml = sida.html; inloggad = sida.inloggad;
+  }
+  return { annons_url: url, annons_html: annonsHtml, forening_html: foreningHtml, inloggad };
 }
 
 chrome.runtime.onMessage.addListener((meddelande, avsandare, svara) => {

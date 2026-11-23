@@ -14,4 +14,6 @@ redan är inloggad. Då räcker det att dra in annonslänken i appen.
 - Får bara läsa sidor på `https://www.booli.se/` (host_permissions).
 - Hämtar bara annonser (`/bostad/<id>`, `/annons/<id>`) och föreningssidor (`/bostadsrattsforening/<id>`).
 - Svarar bara appen på `localhost:8000` (brygga.js körs bara där).
+- Öppnar föreningssidan i en bakgrundsflik några sekunder (Booli lägger in dokumentlänken med
+  JavaScript, bara för inloggade), läser sidan och stänger fliken.
 - Sparar ingenting och skickar inga cookies – sidornas HTML lämnas till appen, som tolkar dem.

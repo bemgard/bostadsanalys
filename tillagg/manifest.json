@@ -1,15 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Bostadsanalys – Booli-hämtare",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Låter bostadsanalysen på din dator (localhost:8000) hämta Booli-annonser och föreningssidor med din inloggning, så att det räcker att dra in annonsen.",
-  "host_permissions": ["https://www.booli.se/*"],
-  "background": { "service_worker": "bakgrund.js" },
+  "host_permissions": [
+    "https://www.booli.se/*"
+  ],
+  "background": {
+    "service_worker": "bakgrund.js"
+  },
   "content_scripts": [
     {
-      "matches": ["http://localhost:8000/*", "http://127.0.0.1:8000/*"],
-      "js": ["brygga.js"],
+      "matches": [
+        "http://localhost:8000/*",
+        "http://127.0.0.1:8000/*"
+      ],
+      "js": [
+        "brygga.js"
+      ],
       "run_at": "document_start"
     }
+  ],
+  "permissions": [
+    "scripting"
   ]
 }
