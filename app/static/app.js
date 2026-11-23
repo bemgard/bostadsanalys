@@ -191,11 +191,11 @@ function visaNy(param) {
   const v = (n) => esc(param.get(n) || "");
   vy.innerHTML = `
     <h1>Ny analys</h1>
-    <p class="dampad">Dra in årsredovisningens PDF eller länken till den. Snabbast är bokmärket på Booli-annonsen – då fylls allt i automatiskt.</p>
+    <p class="dampad">Dra in länken till Booli-annonsen (eller klistra in den med Cmd+V) – då hämtas pris, avgift, storlek och årsredovisning automatiskt. Det går också att dra in årsredovisningens PDF.</p>
     <div class="dropp" id="dropp" tabindex="0" role="button" aria-label="Välj eller dra in en PDF">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 15v4h14v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <strong id="droppText">Dra in PDF eller länk här</strong>
-      <span>eller klicka för att välja fil</span>
+      <strong id="droppText">Dra in annonsen från Booli här</strong>
+      <span>eller klistra in länken · dra in en PDF · klicka för att välja fil</span>
       <input type="file" id="fil" accept="application/pdf" hidden>
     </div>
     <div class="kort" style="margin-top:1rem">
@@ -232,15 +232,78 @@ function visaNy(param) {
     if (e.dataTransfer.files.length) { valjFil(e.dataTransfer.files[0]); return; }
     const lank = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain") || "").trim().split("\n")[0];
     if (/^https:\/\/www\.booli\.se\//.test(lank)) {
-      document.getElementById("annons").value = lank;
-      visaFel("Det där är annonsen. Lägg in länken till årsredovisningens PDF också – eller använd bokmärket på annonsen, så fylls allt i.");
+      franAnnons(lank);
     } else if (/^https:\/\//.test(lank)) {
       document.getElementById("pdfUrl").value = lank; valdFil = null; droppText.textContent = "Länk ifylld";
     }
   });
 
   document.getElementById("starta").addEventListener("click", () => starta(valdFil));
+  // Klistra in en annonslänk var som helst på sidan (utom i ett textfält)
+  document.onpaste = (e) => {
+    if (!location.hash.startsWith("#/ny") || /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    const text = (e.clipboardData.getData("text") || "").trim();
+    if (/^https:\/\/www\.booli\.se\//.test(text)) { e.preventDefault(); franAnnons(text); }
+  };
   if (param.get("pdf")) document.getElementById("starta").focus();
+}
+
+function visaInfo(text) {
+  document.getElementById("status").innerHTML = `<div class="kort kostnad" style="margin-top:1rem">${esc(text)}</div>`;
+}
+
+function fyllAnnons(a) {
+  ["annons", "adress", "pris", "avgift", "rum", "kvm"].forEach((n) => {
+    if (a[n] != null) document.getElementById(n).value = a[n];
+  });
+}
+
+// Ett drag: läs annonsen, hämta årsredovisningen och kör analysen
+async function franAnnons(url) {
+  const knapp = document.getElementById("starta");
+  const steg = ["Läser annonsen och hittar årsredovisningen", "Läser årsredovisningen", "Räknar nyckeltal och utslag"];
+  knapp.disabled = true;
+  document.getElementById("droppText").textContent = "Annonsen inläst";
+  try {
+    visaSteg(steg, 0);
+    const svar = await api("/api/fran-annons", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ annons_url: url }),
+    });
+    fyllAnnons(svar.annons);
+    if (svar.pdf_url) document.getElementById("pdfUrl").value = svar.pdf_url;
+    if (!svar.forberedd) {
+      knapp.disabled = false;
+      visaInfo(svar.meddelande || "Hittade inte årsredovisningen. Dra in PDF:en.");
+      return;
+    }
+    await korAnalys(svar.forberedd, lasAnnonsfalt(), steg);
+  } catch (err) {
+    knapp.disabled = false;
+    visaFel(err.message);
+  }
+}
+
+function lasAnnonsfalt() {
+  const annons = {};
+  ["annons", "adress", "pris", "avgift", "rum", "kvm"].forEach((n) => { annons[n] = document.getElementById(n).value.trim() || null; });
+  return Object.values(annons).some(Boolean) ? annons : null;
+}
+
+// Efter att PDF:en finns lokalt: bekräfta kostnaden om den inte är läst förut, analysera, visa
+async function korAnalys(forberedd, annons, steg) {
+  const knapp = document.getElementById("starta");
+  let bekrafta = false;
+  if (!forberedd.redan_extraherad) {
+    // Regeln: aldrig ett betalt API-anrop utan att användaren bekräftat
+    bekrafta = await fragaKostnad();
+    if (!bekrafta) { knapp.disabled = false; visaFel("Avbrutet – ingen extraktion gjord."); return; }
+  }
+  visaSteg(steg, forberedd.redan_extraherad ? 2 : 1);
+  const klar = await api("/api/analysera", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stam: forberedd.stam, bekrafta_kostnad: bekrafta, annons }),
+  });
+  location.hash = `#/objekt/${encodeURIComponent(klar.stam)}`;
 }
 
 function visaFel(text) {
@@ -255,11 +318,13 @@ function visaSteg(steg, aktivt) {
 async function starta(valdFil) {
   const knapp = document.getElementById("starta");
   const pdfUrl = document.getElementById("pdfUrl").value.trim();
-  if (!valdFil && !pdfUrl) { visaFel("Dra in en PDF eller ange länken till årsredovisningen först."); return; }
-  const annons = {};
-  ["annons", "adress", "pris", "avgift", "rum", "kvm"].forEach((n) => { annons[n] = document.getElementById(n).value.trim() || null; });
-  const harAnnons = Object.values(annons).some(Boolean);
-  if (harAnnons && !annons.annons) { visaFel("Ange Booli-länken till annonsen när du fyller i annonsuppgifter."); return; }
+  const annons = lasAnnonsfalt();
+  if (!valdFil && !pdfUrl) {
+    if (annons && annons.annons) { franAnnons(annons.annons); return; }
+    visaFel("Dra in annonsen, en PDF eller ange länken till årsredovisningen först.");
+    return;
+  }
+  if (annons && !annons.annons) { visaFel("Ange Booli-länken till annonsen när du fyller i annonsuppgifter."); return; }
 
   const steg = ["Hämtar årsredovisningen", "Läser årsredovisningen", "Räknar nyckeltal och utslag"];
   knapp.disabled = true;
@@ -268,19 +333,7 @@ async function starta(valdFil) {
     const forberedd = valdFil
       ? await api(`/api/ladda-upp?filnamn=${encodeURIComponent(valdFil.name)}`, { method: "POST", headers: { "Content-Type": "application/pdf" }, body: valdFil })
       : await api("/api/forbered", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdf_url: pdfUrl }) });
-
-    let bekrafta = false;
-    if (!forberedd.redan_extraherad) {
-      // Regeln: aldrig ett betalt API-anrop utan att användaren bekräftat
-      bekrafta = await fragaKostnad();
-      if (!bekrafta) { knapp.disabled = false; visaFel("Avbrutet – ingen extraktion gjord."); return; }
-    }
-    visaSteg(steg, forberedd.redan_extraherad ? 2 : 1);
-    const klar = await api("/api/analysera", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stam: forberedd.stam, bekrafta_kostnad: bekrafta, annons: harAnnons ? annons : null }),
-    });
-    location.hash = `#/objekt/${encodeURIComponent(klar.stam)}`;
+    await korAnalys(forberedd, annons, steg);
   } catch (err) {
     knapp.disabled = false;
     visaFel(err.message);

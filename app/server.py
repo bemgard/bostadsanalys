@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROT))
 os.chdir(ROT)  # kedjan använder sökvägar relativt projektmappen (data/, output/)
 
 import analysera  # noqa: E402
+import booli  # noqa: E402
 import bedomning  # noqa: E402
 import export_excel  # noqa: E402
 import extract_report  # noqa: E402
@@ -172,6 +173,27 @@ def forbered_lank(data: Forbered):
     pdf = kor(analysera.ladda_ner, url)
     kor(extract_report.las_pdf, pdf)
     return forberedd(pdf)
+
+
+class FranAnnons(BaseModel):
+    annons_url: str
+
+
+@app.post("/api/fran-annons")
+def fran_annons(data: FranAnnons):
+    """Läs Booli-annonsen (pris, avgift, rum, boarea, adress) och försök hämta föreningens
+    årsredovisning. Gratis – extraherar inget. Hittas inte PDF:en returneras forberedd = None
+    och ett meddelande, men annonsuppgifterna kommer ändå med."""
+    try:
+        resultat = booli.fran_annons(data.annons_url)
+    except booli.BooliFel as e:
+        raise HTTPException(400, str(e))
+    resultat["forberedd"] = None
+    if resultat["pdf_url"]:
+        pdf = kor(analysera.ladda_ner, resultat["pdf_url"])
+        kor(extract_report.las_pdf, pdf)
+        resultat["forberedd"] = forberedd(pdf)
+    return resultat
 
 
 @app.post("/api/ladda-upp")

@@ -50,5 +50,24 @@ r = c.post("/api/analysera", json={"stam": svar["stam"]})
 lika("analys utan bekräftelse → 402", (r.status_code, r.json().get("kostar")), (402, True))
 (Path("data/pdfs") / f"{svar['stam']}.pdf").unlink()
 
+# Ett drag med annonslänken – utan nätverk: Booli-sidorna och nedladdningen låtsas
+import analysera  # noqa: E402
+import booli  # noqa: E402
+annons_html = ('<script type="application/ld+json">{"@type":"Product","offers":{"price":5495000}}</script>'
+               '<a href="/bostadsrattsforening/1">f</a><p>Avgift</p><p>3 272 kr</p><p>Boarea</p><p>44 m²</p>')
+forening_html = '<h3>Årsredovisning</h3><a href="https://documents.bcdn.se/a/b/A_rsredovisning.pdf">x</a>'
+sidor = {"https://www.booli.se/bostad/1": annons_html, "https://www.booli.se/bostadsrattsforening/1": forening_html}
+booli.hamta = lambda url, cookie=None: sidor[url]
+befintlig = next(Path("data/pdfs").glob("*.pdf"), None)
+if befintlig:
+    analysera.ladda_ner = lambda url: befintlig
+    r = c.post("/api/fran-annons", json={"annons_url": "https://www.booli.se/bostad/1"}).json()
+    lika("ett drag: annonsen läst", (r["annons"]["pris"], r["annons"]["avgift"], r["annons"]["kvm"]), ("5495000", "3272", "44"))
+    lika("ett drag: PDF förberedd", r["forberedd"]["stam"], befintlig.stem)
+    sidor["https://www.booli.se/bostadsrattsforening/1"] = "<p>Logga in</p>"
+    r = c.post("/api/fran-annons", json={"annons_url": "https://www.booli.se/bostad/1"}).json()
+    lika("ett drag utan PDF: annonsen ändå med", (r["forberedd"], r["annons"]["kvm"], bool(r["meddelande"])), (None, "44", True))
+lika("fel länk till fran-annons → 400", c.post("/api/fran-annons", json={"annons_url": "https://evil.example/1"}).status_code, 400)
+
 print(f"\n{godkanda}/{totalt} godkända")
 sys.exit(0 if godkanda == totalt else 1)

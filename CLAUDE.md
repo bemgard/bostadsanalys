@@ -32,6 +32,7 @@ uppdaterar Excel.
 | `utslag.py` | Utslaget: stoppfaktorer, viktad poäng 0–100, motivering och datakvalitet |
 | `rimlighet.py` | Rimlighetskontroller av extraktionen (ytor, lånenot, typer, sidnummer) – varnar, ändrar inte färger |
 | `lagenhet.py` | Nyckeltal för lägenheten (skuldjusterat pris, avgift efter beslutade höjningar) |
+| `booli.py` | Läser Booli-annonsen och föreningssidan (samma logik som bokmärket) – för ett drag i appen |
 | `app/server.py` | Webbappens API – ingen analyslogik, bara kedjan ovan |
 | `app/static/` | Gränssnittet: översikt, ny analys (dropzon), resultat med bubblor |
 | `export_excel.py` | Bygger `output/bostadsanalys.xlsx` (en rad per annons) |
@@ -53,6 +54,7 @@ venv/bin/python tests/test_rimlighet.py
 venv/bin/python tests/test_avgiftshojningar.py
 venv/bin/python tests/test_avgiftsniva.py
 venv/bin/python tests/test_utslag.py
+venv/bin/python tests/test_booli.py
 venv/bin/python tests/test_server.py   # kräver fastapi + httpx
 node bokmarke/test_bokmarke.js
 ```
