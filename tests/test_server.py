@@ -67,6 +67,15 @@ if befintlig:
     sidor["https://www.booli.se/bostadsrattsforening/1"] = "<p>Logga in</p>"
     r = c.post("/api/fran-annons", json={"annons_url": "https://www.booli.se/bostad/1"}).json()
     lika("ett drag utan PDF: annonsen ändå med", (r["forberedd"], r["annons"]["kvm"], bool(r["meddelande"])), (None, "44", True))
+if befintlig:
+    inloggad = '<h3>Årsredovisning</h3><a href="https://documents.bcdn.se/a/b/A_rsredovisning.pdf">Ladda ner</a>'
+    r = c.post("/api/fran-html", json={"annons_url": "https://www.booli.se/bostad/1",
+                                        "annons_html": annons_html, "forening_html": inloggad}).json()
+    lika("tillägget: sidorna tolkas och PDF:en förbereds", (r["annons"]["pris"], r["forberedd"]["stam"]), ("5495000", befintlig.stem))
+    r = c.post("/api/fran-html", json={"annons_url": "https://www.booli.se/bostad/1",
+                                        "annons_html": annons_html, "forening_html": '"url":""'}).json()
+    lika("tillägget utan dokumentlänk: meddelande om inloggning", (r["forberedd"], "inloggad" in r["meddelande"]), (None, True))
+lika("tillägget: fel annonslänk → 400", c.post("/api/fran-html", json={"annons_url": "https://evil.example/1", "annons_html": ""}).status_code, 400)
 lika("fel länk till fran-annons → 400", c.post("/api/fran-annons", json={"annons_url": "https://evil.example/1"}).status_code, 400)
 
 # Koppla Booli – mot en tillfällig .env, aldrig den riktiga

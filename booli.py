@@ -229,6 +229,32 @@ def _spara_felsokning(html_text: str, med_cookie: bool):
     except OSError:
         pass
 
+def tolka_sidor(url: str, annons_html: str, forening_html: str | None) -> dict:
+    """Samma resultat som fran_annons, men från sidor som redan hämtats – av Chrome-tillägget
+    i användarens inloggade webbläsare (Booli visar dokumentlänkarna bara för inloggade)."""
+    url = url.strip().split("?")[0].split("#")[0].rstrip("/")
+    if not ANNONS_MONSTER.match(url):
+        raise BooliFel("Det där är ingen Booli-annons (https://www.booli.se/bostad/… eller /annons/…).")
+    annons = las_annons(annons_html, url)
+    sokvag = annons.pop("forening_sokvag")
+    if not sokvag:
+        return {"annons": annons, "pdf_url": None, "forening_url": None,
+                "meddelande": "Annonsen har ingen länk till en bostadsrättsförening."}
+    pdf = las_forening_pdf(forening_html or "")
+    meddelande = None
+    if not pdf:
+        _spara_felsokning(forening_html or "", True)
+        meddelande = ("Hittade inte årsredovisningen på föreningssidan. Är du inloggad på Booli i Chrome? "
+                      "Annars kan föreningen sakna årsredovisning – dra in PDF:en.")
+    return {"annons": annons, "pdf_url": pdf, "forening_url": "https://www.booli.se" + sokvag,
+            "meddelande": meddelande}
+
+
+def forening_sokvag(annons_html: str) -> str | None:
+    """Bara föreningslänken ur en annons (för tillägget, som hämtar föreningssidan härnäst)."""
+    return las_annons(annons_html, "").get("forening_sokvag")
+
+
 def fran_annons(url: str) -> dict:
     """Läs annonsen och försök hitta årsredovisningen. Returnerar annonsuppgifterna,
     pdf_url (eller None) och ett meddelande om något saknas."""

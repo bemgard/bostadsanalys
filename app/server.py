@@ -243,6 +243,33 @@ def koppla_fran_booli():
     return {"kopplad": False}
 
 
+class FranHtml(BaseModel):
+    annons_url: str
+    annons_html: str
+    forening_html: str | None = None
+
+
+MAX_HTML_TECKEN = 6_000_000
+
+
+@app.post("/api/fran-html")
+def fran_html(data: FranHtml):
+    """Som /api/fran-annons, men sidorna har hämtats av Chrome-tillägget i användarens inloggade
+    webbläsare. Servern tolkar dem med samma kod (booli.py) och laddar ner PDF:en. Gratis."""
+    if len(data.annons_html) > MAX_HTML_TECKEN or len(data.forening_html or "") > MAX_HTML_TECKEN:
+        raise HTTPException(413, "Sidan är för stor.")
+    try:
+        resultat = booli.tolka_sidor(data.annons_url, data.annons_html, data.forening_html)
+    except booli.BooliFel as e:
+        raise HTTPException(400, str(e))
+    resultat["forberedd"] = None
+    if resultat["pdf_url"]:
+        pdf = kor(analysera.ladda_ner, resultat["pdf_url"])
+        kor(extract_report.las_pdf, pdf)
+        resultat["forberedd"] = forberedd(pdf)
+    return resultat
+
+
 @app.post("/api/ladda-upp")
 async def ladda_upp(request: Request, filnamn: str = "arsredovisning.pdf"):
     """Ta emot en PDF (rå bytes i anropet) och spara den i data/pdfs/. Extraherar inget."""

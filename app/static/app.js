@@ -191,7 +191,7 @@ function visaNy(param) {
   const v = (n) => esc(param.get(n) || "");
   vy.innerHTML = `
     <h1>Ny analys</h1>
-    <p class="dampad">Dra in länken till Booli-annonsen (eller klistra in den med Cmd+V) – då hämtas pris, avgift, storlek och årsredovisning automatiskt. Det går också att dra in årsredovisningens PDF.</p>
+    <p class="dampad">Dra in länken till Booli-annonsen (eller klistra in den med Cmd+V) – då hämtas pris, avgift, storlek och årsredovisning automatiskt. Det går också att dra in årsredovisningens PDF. <a href="#/tillagg">Tillägget i Chrome</a> behövs för att hämta årsredovisningen automatiskt.</p>
     <div class="dropp" id="dropp" tabindex="0" role="button" aria-label="Välj eller dra in en PDF">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 15v4h14v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <strong id="droppText">Dra in annonsen från Booli här</strong>
@@ -266,15 +266,30 @@ async function franAnnons(url) {
   document.getElementById("droppText").textContent = "Annonsen inläst";
   try {
     visaSteg(steg, 0);
-    const svar = await api("/api/fran-annons", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ annons_url: url }),
-    });
+    const harTillagg = await tillaggFinns();
+    let svar;
+    if (harTillagg) {
+      // Tillägget hämtar sidorna i din inloggade Chrome – servern tolkar dem
+      const sidor = await tillagg("hamta", url);
+      svar = await api("/api/fran-html", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sidor),
+      });
+    } else {
+      svar = await api("/api/fran-annons", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ annons_url: url }),
+      });
+    }
     fyllAnnons(svar.annons);
     if (svar.pdf_url) document.getElementById("pdfUrl").value = svar.pdf_url;
     if (!svar.forberedd) {
       knapp.disabled = false;
-      visaInfo(svar.meddelande || "Hittade inte årsredovisningen. Dra in PDF:en.");
-      visaKopplaBooli(url);
+      if (harTillagg) {
+        visaInfo(svar.meddelande || "Hittade inte årsredovisningen. Dra in PDF:en.");
+      } else {
+        visaInfo("Annonsen är inläst. För att hämta årsredovisningen automatiskt behövs tillägget Bostadsanalys i Chrome – det installeras en gång.");
+        document.getElementById("status").insertAdjacentHTML("beforeend",
+          '<div class="knapprad"><a class="knapp primar" href="#/tillagg">Installera tillägget</a><span class="dampad" style="align-self:center">eller dra in PDF:en</span></div>');
+      }
       return;
     }
     await korAnalys(svar.forberedd, lasAnnonsfalt(), steg);
@@ -284,38 +299,47 @@ async function franAnnons(url) {
   }
 }
 
-// "Koppla Booli": klistra in Cookie-raden från webbläsaren en gång – sparas bara i .env på datorn
-function visaKopplaBooli(annonsUrl) {
-  const status = document.getElementById("status");
-  status.insertAdjacentHTML("beforeend", `
-    <div class="kort" style="margin-top:1rem" id="koppla">
-      <div class="knapprad" style="margin-top:0"><button class="knapp primar" id="visaKoppla">Koppla Booli</button>
-        <span class="dampad" style="align-self:center">Görs en gång – sedan räcker det att dra in annonsen.</span></div>
-      <div id="kopplaSteg" hidden>
-        <ol style="padding-left:1.2rem;margin:1rem 0">
-          <li>Öppna <b>en föreningssida på Booli</b> i Chrome där du är inloggad och ser årsredovisningen.</li>
-          <li>Tryck <b>Cmd + Alt + I</b> och välj fliken <b>Network</b> (Nätverk).</li>
-          <li>Ladda om sidan (<b>Cmd + R</b>) och klicka på den översta raden i listan (sidans namn).</li>
-          <li>Under <b>Headers → Request Headers</b>: markera hela värdet efter <b>cookie:</b> och kopiera det.</li>
-          <li>Klistra in det här och spara.</li>
-        </ol>
-        <textarea id="cookie" rows="3" style="width:100%;font:13px ui-monospace,monospace;padding:.5rem;border-radius:10px;border:1px solid var(--linje);background:var(--kort);color:var(--text)" placeholder="namn=värde; namn=värde; …"></textarea>
-        <p class="dampad" style="margin:.5rem 0 0">Inloggningen sparas bara i <code>.env</code> på din dator (aldrig i git) och används bara för att hämta Booli-sidor. Den går ut ibland – då säger appen till.</p>
-        <div class="knapprad"><button class="knapp primar" id="sparaCookie">Spara och försök igen</button></div>
-      </div>
-    </div>`);
-  document.getElementById("visaKoppla").addEventListener("click", () => {
-    document.getElementById("kopplaSteg").hidden = false;
-    document.getElementById("cookie").focus();
+// --- Chrome-tillägget ------------------------------------------------------------
+// Tillägget (mappen tillagg/) hämtar Booli-sidor med din inloggning. Appen pratar med det via
+// window.postMessage; tilläggets brygga sätter data-bostadsanalys-tillagg på <html>.
+let tillaggRaknare = 0;
+function tillagg(typ, url, timeoutMs = 45000) {
+  return new Promise((svara, avvisa) => {
+    const id = `t${++tillaggRaknare}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", lyssna); avvisa(new Error("Tillägget svarade inte.")); }, timeoutMs);
+    function lyssna(e) {
+      if (e.source !== window || !e.data || e.data.bostadsanalysSvar !== id) return;
+      clearTimeout(timer); window.removeEventListener("message", lyssna);
+      e.data.ok ? svara(e.data.data ?? e.data) : avvisa(new Error(e.data.fel || "Tillägget kunde inte hämta sidan."));
+    }
+    window.addEventListener("message", lyssna);
+    window.postMessage({ bostadsanalys: typ, id, url }, location.origin);
   });
-  document.getElementById("sparaCookie").addEventListener("click", async () => {
-    const cookie = document.getElementById("cookie").value.trim();
-    if (!cookie) { document.getElementById("cookie").focus(); return; }
-    try {
-      await api("/api/booli-inloggning", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cookie }) });
-      franAnnons(annonsUrl);
-    } catch (err) { visaFel(err.message); }
-  });
+}
+async function tillaggFinns() {
+  if (document.documentElement.dataset.bostadsanalysTillagg !== "1") return false;
+  try { await tillagg("ping", null, 1500); return true; } catch { return false; }
+}
+
+async function visaTillagg() {
+  satNav("");
+  const finns = await tillaggFinns();
+  vy.innerHTML = `
+    <h1>Tillägget Bostadsanalys</h1>
+    <p class="dampad">Booli visar årsredovisningen bara för inloggade. Tillägget låter appen hämta den i din Chrome, där du redan är inloggad – sedan räcker det att dra in annonsen.</p>
+    <div class="kort ${finns ? "grön" : ""}" style="${finns ? "border-color:var(--gron-kant);background:var(--gron-bg)" : ""}">
+      ${finns ? "<strong>Tillägget är installerat och fungerar.</strong> Gå till Ny analys och dra in en annons."
+              : "<strong>Tillägget är inte installerat än.</strong> Det tar en minut och görs en gång."}
+    </div>
+    ${finns ? "" : `<div class="kort" style="margin-top:1rem"><ol style="padding-left:1.2rem;margin:0;line-height:2">
+      <li>Öppna en ny flik i Chrome och skriv <b>chrome://extensions</b> i adressfältet.</li>
+      <li>Slå på <b>Utvecklarläge</b> (Developer mode) uppe till höger.</li>
+      <li>Klicka på <b>Läs in okomprimerat</b> (Load unpacked).</li>
+      <li>Välj mappen <b>Projects → bostadsanalys → tillagg</b> och klicka Välj.</li>
+      <li>Kom tillbaka hit och <b>ladda om sidan</b> (Cmd + R).</li>
+    </ol>
+    <p class="dampad" style="margin-bottom:0">Tillägget får bara läsa sidor på booli.se och bara svara den här appen på din dator. Se till att du är inloggad på Booli i Chrome.</p></div>`}
+    <div class="knapprad"><a class="knapp primar" href="#/ny">Till Ny analys</a></div>`;
 }
 
 function lasAnnonsfalt() {
@@ -394,6 +418,7 @@ async function route() {
   try {
     if (sokvag.startsWith("/objekt/")) await visaObjekt(decodeURIComponent(sokvag.slice(8)));
     else if (sokvag === "/ny") visaNy(param);
+    else if (sokvag === "/tillagg") await visaTillagg();
     else await visaOversikt();
   } catch (err) {
     vy.innerHTML = `<div class="fel">${esc(err.message)}</div><p><a href="#/">Till översikten</a></p>`;

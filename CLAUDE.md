@@ -33,6 +33,7 @@ uppdaterar Excel.
 | `rimlighet.py` | Rimlighetskontroller av extraktionen (ytor, lånenot, typer, sidnummer) – varnar, ändrar inte färger |
 | `lagenhet.py` | Nyckeltal för lägenheten (skuldjusterat pris, avgift efter beslutade höjningar) |
 | `booli.py` | Läser Booli-annonsen och föreningssidan (samma logik som bokmärket) – för ett drag i appen |
+| `tillagg/` | Chrome-tillägg: hämtar Booli-sidor i inloggad Chrome åt appen (ett drag med annonslänken) |
 | `app/server.py` | Webbappens API – ingen analyslogik, bara kedjan ovan |
 | `app/static/` | Gränssnittet: översikt, ny analys (dropzon), resultat med bubblor |
 | `export_excel.py` | Bygger `output/bostadsanalys.xlsx` (en rad per annons) |
