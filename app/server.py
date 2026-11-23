@@ -196,6 +196,53 @@ def fran_annons(data: FranAnnons):
     return resultat
 
 
+ENV_FIL = Path(".env")
+COOKIE_MAX_TECKEN = 16_000
+
+
+def skriv_env(nyckel: str, varde: str | None):
+    """Sätt (eller ta bort, varde=None) en rad NYCKEL='värde' i .env. Övriga rader lämnas orörda.
+    .env är undantagen från git (.gitignore)."""
+    rader = ENV_FIL.read_text(encoding="utf-8").splitlines() if ENV_FIL.exists() else []
+    rader = [r for r in rader if not r.strip().startswith(f"{nyckel}=")]
+    if varde is not None:
+        rader.append(f"{nyckel}='{varde}'")
+    ENV_FIL.write_text("\n".join(rader) + "\n", encoding="utf-8")
+    if varde is None:
+        os.environ.pop(nyckel, None)
+    else:
+        os.environ[nyckel] = varde
+
+
+class BooliInloggning(BaseModel):
+    cookie: str
+
+
+@app.get("/api/booli-inloggning")
+def booli_inloggning_status():
+    return {"kopplad": booli.booli_cookie() is not None}
+
+
+@app.post("/api/booli-inloggning")
+def koppla_booli(data: BooliInloggning):
+    """Spara Booli-inloggningen (Cookie-raden från webbläsaren) lokalt i .env."""
+    cookie = data.cookie.strip()
+    if cookie.lower().startswith("cookie:"):
+        cookie = cookie[7:].strip()
+    if not cookie or len(cookie) > COOKIE_MAX_TECKEN or "=" not in cookie:
+        raise HTTPException(400, "Det där ser inte ut som en cookie-rad (namn=värde; namn=värde …).")
+    if any(t in cookie for t in "\n\r'") or not cookie.isprintable():
+        raise HTTPException(400, "Cookien innehåller tecken som inte är tillåtna (radbrytning eller apostrof).")
+    skriv_env("BOOLI_COOKIE", cookie)
+    return {"kopplad": True}
+
+
+@app.delete("/api/booli-inloggning")
+def koppla_fran_booli():
+    skriv_env("BOOLI_COOKIE", None)
+    return {"kopplad": False}
+
+
 @app.post("/api/ladda-upp")
 async def ladda_upp(request: Request, filnamn: str = "arsredovisning.pdf"):
     """Ta emot en PDF (rå bytes i anropet) och spara den i data/pdfs/. Extraherar inget."""

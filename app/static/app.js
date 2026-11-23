@@ -274,6 +274,7 @@ async function franAnnons(url) {
     if (!svar.forberedd) {
       knapp.disabled = false;
       visaInfo(svar.meddelande || "Hittade inte årsredovisningen. Dra in PDF:en.");
+      visaKopplaBooli(url);
       return;
     }
     await korAnalys(svar.forberedd, lasAnnonsfalt(), steg);
@@ -281,6 +282,40 @@ async function franAnnons(url) {
     knapp.disabled = false;
     visaFel(err.message);
   }
+}
+
+// "Koppla Booli": klistra in Cookie-raden från webbläsaren en gång – sparas bara i .env på datorn
+function visaKopplaBooli(annonsUrl) {
+  const status = document.getElementById("status");
+  status.insertAdjacentHTML("beforeend", `
+    <div class="kort" style="margin-top:1rem" id="koppla">
+      <div class="knapprad" style="margin-top:0"><button class="knapp primar" id="visaKoppla">Koppla Booli</button>
+        <span class="dampad" style="align-self:center">Görs en gång – sedan räcker det att dra in annonsen.</span></div>
+      <div id="kopplaSteg" hidden>
+        <ol style="padding-left:1.2rem;margin:1rem 0">
+          <li>Öppna <b>en föreningssida på Booli</b> i Chrome där du är inloggad och ser årsredovisningen.</li>
+          <li>Tryck <b>Cmd + Alt + I</b> och välj fliken <b>Network</b> (Nätverk).</li>
+          <li>Ladda om sidan (<b>Cmd + R</b>) och klicka på den översta raden i listan (sidans namn).</li>
+          <li>Under <b>Headers → Request Headers</b>: markera hela värdet efter <b>cookie:</b> och kopiera det.</li>
+          <li>Klistra in det här och spara.</li>
+        </ol>
+        <textarea id="cookie" rows="3" style="width:100%;font:13px ui-monospace,monospace;padding:.5rem;border-radius:10px;border:1px solid var(--linje);background:var(--kort);color:var(--text)" placeholder="namn=värde; namn=värde; …"></textarea>
+        <p class="dampad" style="margin:.5rem 0 0">Inloggningen sparas bara i <code>.env</code> på din dator (aldrig i git) och används bara för att hämta Booli-sidor. Den går ut ibland – då säger appen till.</p>
+        <div class="knapprad"><button class="knapp primar" id="sparaCookie">Spara och försök igen</button></div>
+      </div>
+    </div>`);
+  document.getElementById("visaKoppla").addEventListener("click", () => {
+    document.getElementById("kopplaSteg").hidden = false;
+    document.getElementById("cookie").focus();
+  });
+  document.getElementById("sparaCookie").addEventListener("click", async () => {
+    const cookie = document.getElementById("cookie").value.trim();
+    if (!cookie) { document.getElementById("cookie").focus(); return; }
+    try {
+      await api("/api/booli-inloggning", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cookie }) });
+      franAnnons(annonsUrl);
+    } catch (err) { visaFel(err.message); }
+  });
 }
 
 function lasAnnonsfalt() {

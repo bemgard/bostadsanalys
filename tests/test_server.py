@@ -69,5 +69,24 @@ if befintlig:
     lika("ett drag utan PDF: annonsen ändå med", (r["forberedd"], r["annons"]["kvm"], bool(r["meddelande"])), (None, "44", True))
 lika("fel länk till fran-annons → 400", c.post("/api/fran-annons", json={"annons_url": "https://evil.example/1"}).status_code, 400)
 
+# Koppla Booli – mot en tillfällig .env, aldrig den riktiga
+import os  # noqa: E402
+import tempfile  # noqa: E402
+import app.server as server  # noqa: E402
+riktig_env, os_cookie = server.ENV_FIL, os.environ.pop("BOOLI_COOKIE", None)
+with tempfile.TemporaryDirectory() as mapp:
+    server.ENV_FIL = Path(mapp) / ".env"
+    server.ENV_FIL.write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    lika("ogiltig cookie avvisas", c.post("/api/booli-inloggning", json={"cookie": "a='1'"}).status_code, 400)
+    c.post("/api/booli-inloggning", json={"cookie": "cookie: sess=abc; b=2"})
+    lika("cookie sparad, övriga rader kvar", server.ENV_FIL.read_text(encoding="utf-8"),
+         "ANTHROPIC_API_KEY=x\nBOOLI_COOKIE='sess=abc; b=2'\n")
+    lika("status kopplad", c.get("/api/booli-inloggning").json(), {"kopplad": True})
+    c.delete("/api/booli-inloggning")
+    lika("borttagen", server.ENV_FIL.read_text(encoding="utf-8"), "ANTHROPIC_API_KEY=x\n")
+server.ENV_FIL = riktig_env
+if os_cookie:
+    os.environ["BOOLI_COOKIE"] = os_cookie
+
 print(f"\n{godkanda}/{totalt} godkända")
 sys.exit(0 if godkanda == totalt else 1)

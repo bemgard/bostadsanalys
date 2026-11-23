@@ -50,10 +50,10 @@ def booli_cookie() -> str | None:
     """Booli-inloggning från miljön/.env (BOOLI_COOKIE), eller None."""
     try:
         from dotenv import load_dotenv
-        load_dotenv()
+        load_dotenv()  # skriver inte över en redan satt miljövariabel (appen sätter den direkt)
     except ImportError:
         pass
-    cookie = (os.getenv("BOOLI_COOKIE") or "").strip()
+    cookie = (os.getenv("BOOLI_COOKIE") or "").strip().strip("'")
     return cookie if cookie and "\n" not in cookie else None
 
 
