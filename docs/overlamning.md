@@ -42,18 +42,20 @@ Chrome-tillägget (tillagg/) ── hämtar Booli-sidor med din inloggning ─�
 - [x] Schema, RLS och trigger (`bostadsanalys_schema_och_rls`, `harda_hjalpfunktioner`)
 - [x] Privat bucket `arsredovisningar`, unika nycklar och index för månadstaket (`fas3_storage_och_tak`)
 - [x] Migration `annons_pekar_pa_dokument` (kolumnen `annonser.dokument_id`)
-- [ ] Auth: stäng av öppen registrering, magisk länk, Site URL/Redirect URL = https://bostadsjakt.netlify.app (Calle i dashboarden)
-- [ ] Bjud in Calle och sambon; flytta sambon till Calles hushåll (SQL nedan)
+- [x] Auth: Site URL/Redirect URL = https://bostadsjakt.netlify.app
+- [ ] Auth: egen SMTP (t.ex. Resend) – mejlen går inte fram i dag. Tills dess: magisk länk via admin-API:t (generate_link)
+- [ ] Kontrollera att "Allow new users to sign up" är avstängd
+- [x] Calle och Agnes inbjudna och i samma hushåll (Agnes gamla tomma hushåll 6c7c3fb1… ligger kvar – Supabase-kopplingen stoppar delete; ofarligt, kan tas bort i SQL Editor)
 - [x] Backend mot Supabase, med tester (`tests/test_server.py` mot en låtsas-Supabase)
 - [x] Gränssnitt med inloggning, köpartyp på kontot, uppladdning från mobilen och jobbkö
 - [x] Tillägget: brödsmulan går först, servern kontrollerar föreningssidan, Netlify-adressen tillåten (v1.2)
 - [x] Migreringsskript `migrera_till_moln.py` (idempotent, torrkörning som standard)
-- [ ] Kör migreringen (torrt, sedan `--kor`)
+- [x] Migreringen körd 2026-11-24: 18 dokument/PDF:er/extraktioner, 18 föreningar, 6 bedömningar (gamla formatet flyttas inte), 7 aktiva + 14 arkiverade annonser. Omkörning ger 0 nya rader.
 - [x] Pushat till GitHub (hela trädet och historiken genomsökta efter nycklar först – rent)
 - [x] Render: tjänsten `bostadsjakt` (srv-dc2pevtg1s2s739hlf0g, Frankfurt, Free, auto-deploy från main) – live
-- [ ] Render: sätt `SUPABASE_SERVICE_ROLE_KEY` och `ANTHROPIC_API_KEY` under Environment (Calle)
+- [x] Render: hemligheterna satta
 - [x] Netlify: sajten `bostadsjakt` skapad (bostadsjakt.netlify.app)
-- [ ] Netlify: koppla repot bemgard/bostadsanalys, gren main (Calle i UI:t – `netlify.toml` sköter resten)
+- [x] Netlify: kopplat till repot, proxyn /api/* → Render fungerar
 - [ ] Ladda om tillägget i Chrome (chrome://extensions → uppdatera)
 - [ ] Prova: mobil-inloggning → köpartyp → ladda upp PDF → resultat; tillägget på datorn; sambo ser samma; vän ser bara sitt
 
