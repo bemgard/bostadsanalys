@@ -80,6 +80,12 @@ def las_annonser():
         sys.exit(f"{ANNONSER_FIL} är inte giltig JSON: {e}")
 
 
+def profilnamn(b):
+    """Visningsnamn för bedömningens köparprofil (gamla bedömningar utan profil = standard)."""
+    pid = b.get("koparprofil") or k.STANDARD_KOPARPROFIL
+    return k.KOPARPROFILER.get(pid, {}).get("namn", pid)
+
+
 def sorteringsnyckel(b):
     """GÅ VIDARE först, sedan AVVAKTA, sist SORTERA BORT; inom gruppen högst poäng först.
     En annons vars förening saknar bedömning (b = None) hamnar sist."""
@@ -138,18 +144,24 @@ def bygg_oversikt(ark, bedomningar, annonser):
                       ("Skuldjusterat pris (kr)", "#,##0"), ("Skuldjusterat pris per kvm (kr)", "#,##0"),
                       ("Pris per kvm (kr)", "#,##0"), ("Avgift efter beslutade höjningar (kr/mån)", "#,##0"),
                       ("Rum", None), ("Boarea (kvm)", None)]
-    fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Antal röda", "Antal gula",
-             "Kontrollera i PDF:en"]
+    fasta = ["Förening", "Org.nr", "Räkenskapsår (slut)", "Bedömd datum", "Köparprofil",
+             "Antal röda", "Antal gula", "Kontrollera i PDF:en"]
     kolumner = [("Adress", None)] + BESLUT + annonskolumner
     forsta_forening = len(kolumner) + 1  # kolumnnummer där föreningens kolumner börjar
     kol = {namn: i for i, (namn, _) in enumerate(kolumner, start=1)}
     kol.update({namn: forsta_forening + i for i, namn in enumerate(fasta)})
-    # Okänt nyckeltal (finns inte i KOLUMNER) får sitt namn som rubrik och inget talformat
-    # Rader som inte räknas i utslaget (kriterier.UTSLAG_RAKNAS_EJ) märks i rubriken
-    ark.append([r for r, _ in kolumner] + fasta + [
-        KOLUMNER.get(n, (n, None))[0] + (" – påverkar inte utslaget" if n in k.UTSLAG_RAKNAS_EJ else "")
-        for n in nyckeltal
-    ])
+    # Renoveringsrubriken visar horisonten bedömningarna faktiskt använt (en profil → en siffra,
+    # flera profiler i samma export → generell text), inte den hårdkodade konstanten.
+    horisonter = {b.get("renoveringshorisont_ar") for b in bedomningar if b.get("renoveringshorisont_ar")}
+    renov_titel = (f"Stora renoveringar (antal inom {next(iter(horisonter))} år)"
+                   if len(horisonter) == 1 else "Stora renoveringar (antal inom horisonten)")
+
+    def rubrik(n):
+        # Rader som inte räknas i utslaget (kriterier.UTSLAG_RAKNAS_EJ) märks i rubriken.
+        titel = renov_titel if n == "Renoveringar" else KOLUMNER.get(n, (n, None))[0]
+        return titel + (" – påverkar inte utslaget" if n in k.UTSLAG_RAKNAS_EJ else "")
+
+    ark.append([r for r, _ in kolumner] + fasta + [rubrik(n) for n in nyckeltal])
 
     for a, b in rader_for_oversikt(bedomningar, annonser):
         # Annonsdelen (tom om föreningen analyserats utan annons)
@@ -167,8 +179,8 @@ def bygg_oversikt(ark, bedomningar, annonser):
             ark.append(
                 [adress, b["utslag"], b.get("poang"), b.get("motivering"), b.get("datakvalitet")]
                 + annonsdel
-                + [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], b["antal_roda"], b["antal_gula"],
-                   "; ".join(b.get("varningar") or []) or None]
+                + [b["forening"], b.get("org_nr"), b["rakenskapsar_slut"], b["idag"], profilnamn(b),
+                   b["antal_roda"], b["antal_gula"], "; ".join(b.get("varningar") or []) or None]
                 + [per_namn[n].get("varde_tal") if n in per_namn else None for n in nyckeltal]
             )
         rad = ark.max_row

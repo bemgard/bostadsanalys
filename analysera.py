@@ -26,6 +26,7 @@ from urllib.parse import unquote, urlparse
 import bedomning
 import export_excel
 import extract_report
+import kriterier as k
 
 PDF_DIR = Path("data/pdfs")
 ADRESS_MAX_TECKEN = 100
@@ -182,6 +183,8 @@ def main():
     parser.add_argument("--rum", help="Antal rum (tal)")
     parser.add_argument("--kvm", help="Boarea i kvm (tal)")
     parser.add_argument("--excel", action="store_true", help="Bygg även Excel-filen (valfritt)")
+    parser.add_argument("--profil", choices=list(k.KOPARPROFILER),
+                        help=f"Köparprofil (standard: {k.STANDARD_KOPARPROFIL})")
     args = parser.parse_args()
     indata = args.indata
 
@@ -208,7 +211,7 @@ def main():
 
     # 3. Bedömning
     print("\n== 3. Bedömning")
-    resultat = bedomning.bedom_fil(json_fil, date.today())
+    resultat = bedomning.bedom_fil(json_fil, date.today(), args.profil)
 
     # Spara annonsen (kopplas till föreningen via org.nr)
     if annons:

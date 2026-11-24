@@ -23,7 +23,7 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -89,11 +89,22 @@ def annons_for(b, annonser):
 
 
 def med_vikter(b):
-    """Lägg till vikt och om nyckeltalet är tungt, för att gruppera bubblorna."""
+    """Lägg till vikt och om nyckeltalet är tungt, för att gruppera bubblorna.
+    Vikterna följer bedömningens köparprofil (gamla bedömningar utan profil = standard)."""
+    _, vikter = k.los_profil(b.get("koparprofil"))
     for r in b["nyckeltal"]:
-        r["vikt"] = k.UTSLAG_VIKTER.get(r["nyckeltal"], k.UTSLAG_VIKT_STANDARD)
+        r["vikt"] = vikter.get(r["nyckeltal"], k.UTSLAG_VIKT_STANDARD)
         r["tung"] = r["vikt"] >= k.UTSLAG_TUNG_VIKT
     return b
+
+
+def validera_profil(profil):
+    """None → standard. Okänd profil → 400 med namnen som finns."""
+    try:
+        k.los_profil(profil)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return profil
 
 
 def detalj(stam: str):
@@ -128,6 +139,18 @@ def forberedd(pdf: Path):
 
 
 # --- API ---------------------------------------------------------------------
+
+@app.get("/api/profiler")
+def lista_profiler():
+    """Köparprofilerna för väljaren i gränssnittet (id, namn och renoveringshorisont)."""
+    return {
+        "standard": k.STANDARD_KOPARPROFIL,
+        "profiler": [
+            {"id": pid, "namn": p["namn"], "horisont": p["renoveringshorisont_ar"]}
+            for pid, p in k.KOPARPROFILER.items()
+        ],
+    }
+
 
 @app.get("/api/objekt")
 def lista_objekt():
@@ -303,6 +326,7 @@ class Analysera(BaseModel):
     stam: str
     bekrafta_kostnad: bool = False
     annons: Annons | None = None
+    profil: str | None = None
 
 
 @app.post("/api/analysera")
@@ -311,6 +335,8 @@ def analysera_objekt(data: Analysera):
     pdf = pdf_for(data.stam)
     if not pdf.exists():
         raise HTTPException(404, "PDF:en finns inte – ladda upp eller ange länken igen.")
+
+    validera_profil(data.profil)
 
     # Validera annonsuppgifterna innan något kostar pengar
     annons = None
@@ -328,7 +354,7 @@ def analysera_objekt(data: Analysera):
                 return JSONResponse(status_code=402, content={
                     "detail": "Extraktionen kostar ca 1–2 kr och kräver bekräftelse.", "kostar": True})
             kor(extract_report.extrahera, pdf)
-        resultat = kor(bedomning.bedom_fil, json_fil, date.today())
+        resultat = kor(bedomning.bedom_fil, json_fil, date.today(), data.profil)
         if annons:
             analysera.spara_annons(annons, resultat.get("org_nr"), pdf)
     finally:
@@ -337,12 +363,14 @@ def analysera_objekt(data: Analysera):
 
 
 @app.post("/api/objekt/{stam}/bedom-om")
-def bedom_om(stam: str):
-    """Bedöm om med dagens datum och nuvarande kriterier. Gratis – inget API-anrop."""
+def bedom_om(stam: str, profil: str | None = Body(None, embed=True)):
+    """Bedöm om med dagens datum och nuvarande kriterier, valfritt med en annan köparprofil.
+    Gratis – inget API-anrop."""
     json_fil = extract_report.OUTPUT_DIR / f"{kontrollera_stam(stam)}.json"
     if not json_fil.exists():
         raise HTTPException(404, "Ingen extraktion finns för objektet.")
-    kor(bedomning.bedom_fil, json_fil, date.today())
+    validera_profil(profil)
+    kor(bedomning.bedom_fil, json_fil, date.today(), profil)
     return detalj(stam)
 
 

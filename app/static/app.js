@@ -33,6 +33,26 @@ function satNav(namn) {
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("aktiv", a.dataset.nav === namn));
 }
 
+// --- Köparprofil (köpartyp) --------------------------------------------------
+// Profilerna hämtas en gång från servern. Valet på Ny analys sparas i webbläsaren.
+let PROFILER = null;
+async function lasProfiler() {
+  if (!PROFILER) PROFILER = await api("/api/profiler");
+  return PROFILER;
+}
+function hamtaLagrat(nyckel) { try { return localStorage.getItem(nyckel); } catch { return null; } }
+function lagra(nyckel, varde) { try { localStorage.setItem(nyckel, varde); } catch { /* privat läge */ } }
+function valdProfil() { return hamtaLagrat("profil") || (PROFILER && PROFILER.standard) || "par"; }
+function profilnamn(id) { return (PROFILER && (PROFILER.profiler.find((p) => p.id === id) || {}).namn) || id; }
+
+// Segmenterad väljare för köpartyp. aktiv = markerad profil.
+function profilvaljare(aktiv) {
+  if (!PROFILER) return "";
+  return `<div class="profilval" role="group" aria-label="Köpartyp">${PROFILER.profiler.map((p) =>
+    `<button type="button" class="profilknapp${p.id === aktiv ? " vald" : ""}" data-profil="${esc(p.id)}" aria-pressed="${p.id === aktiv}">${esc(p.namn)}</button>`
+  ).join("")}</div>`;
+}
+
 // Motiveringen börjar med "AVVAKTA (67/100)." – det visas redan i rubriken
 function utanRubrik(motivering) {
   return String(motivering || "").replace(/^(GÅ VIDARE|AVVAKTA|SORTERA BORT)( \(\S+\/100\))?\.?\s*(–\s*)?/, "");
@@ -79,9 +99,11 @@ function objektkort(o) {
 async function visaObjekt(stam) {
   satNav("");
   vy.innerHTML = '<p class="dampad">Hämtar analysen…</p>';
+  await lasProfiler();
   const d = await api(`/api/objekt/${encodeURIComponent(stam)}`);
   const b = d.bedomning, a = d.annons || {}, t = d.lagenhet;
   const farg = FARG[b.utslag] || "saknas";
+  const profil = b.koparprofil || (PROFILER && PROFILER.standard);
   const rader = b.nyckeltal.filter((r) => r.farg !== "info");
   const ordning = { "röd": 0, "gul": 1, "saknas": 2, "grön": 3 };
   const sortera = (lista) => lista.slice().sort((x, y) => (ordning[x.farg] ?? 9) - (ordning[y.farg] ?? 9));
@@ -104,6 +126,11 @@ async function visaObjekt(stam) {
         <span class="pill ${b.datakvalitet === "Säker" ? "grön" : "gul"}" title="${esc(b.datakvalitet_forklaring)}">Data: ${esc(b.datakvalitet || "–")}</span>
         <span class="dampad" style="align-self:center">${esc(b.datakvalitet_forklaring || "")}</span>
       </div>
+    </div>
+
+    <div class="rad profilrad">
+      <div class="dampad">Köpartyp: <b>${esc(profilnamn(profil))}</b>${b.renoveringshorisont_ar ? ` · räknar underhåll ~${esc(b.renoveringshorisont_ar)} år fram` : ""}</div>
+      ${profilvaljare(profil)}
     </div>
 
     ${t.pris || t.avgift ? `<h2>Lägenheten</h2>
@@ -141,8 +168,26 @@ async function visaObjekt(stam) {
   }));
   document.getElementById("bedomOm").addEventListener("click", async (e) => {
     e.target.disabled = true;
-    try { await api(`/api/objekt/${encodeURIComponent(stam)}/bedom-om`, { method: "POST" }); visaObjekt(stam); }
-    catch (err) { alert(err.message); e.target.disabled = false; }
+    try {
+      await api(`/api/objekt/${encodeURIComponent(stam)}/bedom-om`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profil }),
+      });
+      visaObjekt(stam);
+    } catch (err) { alert(err.message); e.target.disabled = false; }
+  });
+  // Byt köpartyp: kör om bedömningen (gratis) med den valda profilen
+  vy.querySelector(".profilrad .profilval")?.addEventListener("click", async (e) => {
+    const knapp = e.target.closest("[data-profil]");
+    if (!knapp || knapp.classList.contains("vald")) return;
+    vy.querySelectorAll(".profilrad .profilknapp").forEach((x) => (x.disabled = true));
+    try {
+      await api(`/api/objekt/${encodeURIComponent(stam)}/bedom-om`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profil: knapp.dataset.profil }),
+      });
+      visaObjekt(stam);
+    } catch (err) { alert(err.message); vy.querySelectorAll(".profilrad .profilknapp").forEach((x) => (x.disabled = false)); }
   });
   document.getElementById("arkivera").addEventListener("click", async () => {
     if (!confirm("Flytta objektet till arkivet? Inget raderas – det ligger kvar i data/arkiv/.")) return;
@@ -186,12 +231,18 @@ function bubbla(r, i) {
 
 // --- Ny analys ---------------------------------------------------------------
 
-function visaNy(param) {
+async function visaNy(param) {
   satNav("ny");
+  await lasProfiler();
   const v = (n) => esc(param.get(n) || "");
   vy.innerHTML = `
     <h1>Ny analys</h1>
     <p class="dampad">Dra in länken till Booli-annonsen (eller klistra in den med Cmd+V) – då hämtas pris, avgift, storlek och årsredovisning automatiskt. Det går också att dra in årsredovisningens PDF. <a href="#/tillagg">Tillägget i Chrome</a> behövs för att hämta årsredovisningen automatiskt.</p>
+    <div class="kort profilkort">
+      <div class="rad"><div><strong>Köpartyp</strong>
+        <div class="dampad">Styr vikten på riskerna och hur långt fram underhåll räknas – föreningens gränser är lika för alla.</div></div>
+        ${profilvaljare(valdProfil())}</div>
+    </div>
     <div class="dropp" id="dropp" tabindex="0" role="button" aria-label="Välj eller dra in en PDF">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 15v4h14v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <strong id="droppText">Dra in annonsen från Booli här</strong>
@@ -239,6 +290,17 @@ function visaNy(param) {
   });
 
   document.getElementById("starta").addEventListener("click", () => starta(valdFil));
+  // Köpartyp: spara valet så det används vid analysen och nästa gång
+  vy.querySelector(".profilkort .profilval")?.addEventListener("click", (e) => {
+    const knapp = e.target.closest("[data-profil]");
+    if (!knapp) return;
+    lagra("profil", knapp.dataset.profil);
+    vy.querySelectorAll(".profilkort .profilknapp").forEach((b) => {
+      const vald = b === knapp;
+      b.classList.toggle("vald", vald);
+      b.setAttribute("aria-pressed", vald);
+    });
+  });
   // Klistra in en annonslänk var som helst på sidan (utom i ett textfält)
   document.onpaste = (e) => {
     if (!location.hash.startsWith("#/ny") || /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
@@ -360,7 +422,7 @@ async function korAnalys(forberedd, annons, steg) {
   visaSteg(steg, forberedd.redan_extraherad ? 2 : 1);
   const klar = await api("/api/analysera", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ stam: forberedd.stam, bekrafta_kostnad: bekrafta, annons }),
+    body: JSON.stringify({ stam: forberedd.stam, bekrafta_kostnad: bekrafta, annons, profil: valdProfil() }),
   });
   location.hash = `#/objekt/${encodeURIComponent(klar.stam)}`;
 }
@@ -417,7 +479,7 @@ async function route() {
   const param = new URLSearchParams(fraga);
   try {
     if (sokvag.startsWith("/objekt/")) await visaObjekt(decodeURIComponent(sokvag.slice(8)));
-    else if (sokvag === "/ny") visaNy(param);
+    else if (sokvag === "/ny") await visaNy(param);
     else if (sokvag === "/tillagg") await visaTillagg();
     else await visaOversikt();
   } catch (err) {

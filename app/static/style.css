@@ -104,3 +104,12 @@ input[type=text], input[type=url] { width: 100%; font: inherit; padding: .55rem 
 .steg li.pagar::after { content: " …"; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: .2; } }
 .kostnad { background: var(--gul-bg); border: 1px solid var(--gul-kant); color: var(--text); }
+
+/* Köpartyp – segmenterad väljare */
+.profilkort { margin-top: 1rem; }
+.profilrad { gap: .75rem; margin: 1.25rem 0 .5rem; }
+.profilval { display: inline-flex; gap: .2rem; background: var(--gra-bg); border: 1px solid var(--linje); border-radius: 999px; padding: .2rem; flex-wrap: wrap; }
+.profilknapp { border: 0; background: transparent; color: var(--text2); font: inherit; font-size: 14px; padding: .4rem .9rem; border-radius: 999px; cursor: pointer; }
+.profilknapp:hover { color: var(--text); }
+.profilknapp.vald { background: var(--kort); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.profilknapp:disabled { opacity: .5; cursor: wait; }
