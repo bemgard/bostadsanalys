@@ -115,11 +115,17 @@ def main():
 
     # 2. Bedömningar
     for stam, o in objekt.items():
-        for fil, _ in o["bedomningar"]:
+        # Arkiverade först, aktiva sist: har båda samma datum vinner den aktiva (nyare) bedömningen
+        for fil, _ in sorted(o["bedomningar"], key=lambda x: x[1]):
             b = las_json(fil)
             profil, idag = b.get("koparprofil") or "par", b.get("idag")
             if not idag:
                 print(f"  ⚠️  {fil}: saknar datum – hoppas över")
+                continue
+            # Gamla formatet (före utslaget med poäng/motivering/datakvalitet) flyttas inte – appen
+            # skulle visa en trasig bedömning. Den räknas om gratis med dagens kriterier vid behov.
+            if not {"poang", "motivering", "datakvalitet"} <= set(b):
+                print(f"  - bedömning {stam} ({idag}): gammalt format – flyttas inte, räknas om vid behov")
                 continue
             print(f"  ~ bedömning {stam} ({profil}, {idag})")
             if skriv:
