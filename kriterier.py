@@ -84,6 +84,14 @@ BYGGDELAR = {
         "hela_ord": [],
         "ignorera": ["elstambyte", "elstamsbyte"],
         "undantag": [],
+        # Relining är en livsförlängande infodring, inte ett fullt stambyte. Den håller
+        # kortare (branschen räknar ~25–30 år mot ~50 för ett nytt stambyte), så en relining
+        # åldras mot egna, snålare gränser nedan. En åtgärd vars text innehåller något av
+        # relining_nyckelord räknas som relining; "stamrenovering" lämnas kvar som fullt
+        # stambyte (flytta hit om din förening menar relining med det ordet).
+        "relining_nyckelord": ["relining", "relinat", "infodr"],
+        "relining_gul_over": 20,
+        "relining_rod_over": 30,
     },
     "tak": {
         "namn": "Tak",
@@ -253,6 +261,16 @@ UTSLAG_VIKTER = {
 UTSLAG_VIKT_STANDARD = 1
 UTSLAG_TUNG_VIKT = 3  # vikt från vilken ett kriterium räknas som tungt (i motivering och datakvalitet)
 
+# Sparande räknas som en TUNG röd risk (kan bidra till SORTERA BORT och hindra GÅ VIDARE)
+# bara om föreningen också har hög belåning eller stort kommande underhåll. Isolerat lågt
+# sparande med låg skuld och underhållet i ordning är ofarligt – branschnormen säger att
+# sparandet ska läsas mot underhållsplanen, inte som en egen tröskel. Sparandet syns ändå
+# som rött i tabellen och drar ner poängen; detta styr bara den tunga stopp-logiken.
+# False = sparande räknas alltid som tung röd (gamla beteendet).
+SPARANDE_TUNG_ROD_KRAVER_RISK = True
+# De röda rader som räknas som "hög belåning / stort kommande underhåll" för villkoret ovan.
+SPARANDE_TUNG_ROD_VILLKOR = ("Belåning per kvm", "Byggdelar", "Renoveringar")
+
 # 3. Utslag (om ingen stoppfaktor slagit till), i den här ordningen:
 #    - minst UTSLAG_SORTERA_BORT_TUNGA_RODA röda tunga kriterier → SORTERA BORT
 #    - poäng under UTSLAG_AVVAKTA_MIN_POANG → SORTERA BORT
@@ -268,3 +286,43 @@ UTSLAG_AVVAKTA_MIN_POANG = 50
 #    nyckeltal saknas, eller minst så här många rimlighetsvarningar finns.
 DATAKVALITET_OSAKER_SAKNADE = 3
 DATAKVALITET_OSAKER_VARNINGAR = 2
+
+# --- Köparprofiler ---------------------------------------------------------------
+# En köparprofil ändrar INTE föreningsgränserna ovan – en ekonomiskt svag förening är
+# svag för alla. Profilen ändrar bara:
+#   renoveringshorisont_ar – hur länge köparen räknar med att bo kvar. Ersätter
+#                            RENOVERINGAR_HORISONT_AR: styr vilka planerade åtgärder som
+#                            räknas och om ett planerat byte "räddar" en gammal byggdel.
+#   vikter                 – ändrade vikter mot UTSLAG_VIKTER (bara de rader som skiljer).
+# "par" är standard och ger exakt basbeteendet. Plånbokslagret (max månadskostnad per
+# profil) byggs i ett senare steg – det kräver beräkning med eget lån.
+KOPARPROFILER = {
+    "par": {
+        "namn": "Par",
+        "renoveringshorisont_ar": RENOVERINGAR_HORISONT_AR,
+        "vikter": {},
+    },
+    "ensamstaende": {
+        "namn": "Ensamstående",
+        "renoveringshorisont_ar": 5,
+        # En inkomst: en avgifts- eller räntehöjning tar en större del av budgeten.
+        "vikter": {"Räntekänslighet": 3, "Avgift per kvm": 3},
+    },
+    "familj": {
+        "namn": "Familj",
+        "renoveringshorisont_ar": 15,
+        # Bor kvar länge: stora framtida underhåll och omreglerad tomträttsavgäld
+        # hinner drabba dem. Längre horisont gör renoveringsraden strängare.
+        "vikter": {"Tomträtt": 3},
+    },
+}
+STANDARD_KOPARPROFIL = "par"
+
+
+def los_profil(namn=None):
+    """(renoveringshorisont_ar, vikter) för en köparprofil. Okänt namn/None = standard.
+    vikter är UTSLAG_VIKTER med profilens ändringar ovanpå."""
+    profil = KOPARPROFILER.get(namn or STANDARD_KOPARPROFIL)
+    if profil is None:
+        raise ValueError(f"Okänd köparprofil: {namn!r}. Välj bland {', '.join(KOPARPROFILER)}.")
+    return profil["renoveringshorisont_ar"], {**UTSLAG_VIKTER, **profil["vikter"]}

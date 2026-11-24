@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from bedomning import byggdelar, byggdelar_i_text, senaste_ar  # noqa: E402
+from bedomning import byggdelar, byggdelar_i_text, farg_byggdel, senaste_ar, stora_renoveringar  # noqa: E402
 
 FALL = [
     # (åtgärdstext, förväntade byggdelar)
@@ -79,6 +79,31 @@ kontrollera("el: 1995 från Elstambyte", resultat["el"]["ar"], 1995)
 kontrollera("fasad: 2020 ur intervallet 2019-2020", resultat["fasad"]["ar"], 2020)
 kontrollera("tak: okänt (inget utfört), men planerat", (resultat["tak"]["ar"], resultat["tak"]["planerad"]), (None, True))
 kontrollera("saknat fält (äldre extraktion) → None", byggdelar({}, date(2026, 10, 8)), None)
+
+print("\nRelining åldras snabbare än ett fullt stambyte")
+
+
+def stam(*atgarder):
+    """(typ, färg) för stammarna med utförda åtgärder [(text, år), ...], bedömt 2026-10-08."""
+    d = {"rakenskapsar": {"slut": {"varde": "2024-12-31"}}, "planerat_underhall": [],
+         "utfort_underhall": [{"atgard": t, "ar": a} for t, a in atgarder]}
+    info = byggdelar(d, date(2026, 10, 8))["stambyte"]
+    return info["typ"], farg_byggdel("stambyte", info)
+
+
+kontrollera("relining 2000 (26 år) → gul", stam(("Relining av avloppsstammar", "2000")), ("relining", "gul"))
+kontrollera("fullt stambyte 2000 (26 år) → grön", stam(("Stambyte vatten och avlopp", "2000")), ("stambyte", "grön"))
+kontrollera("relining 1990 (36 år), inget planerat → röd", stam(("Relining huvudledning", "1990")), ("relining", "röd"))
+kontrollera("fullt stambyte 1990 (36 år) → grön", stam(("Rörstambyte", "1990")), ("stambyte", "grön"))
+kontrollera("relining 1995 + stambyte 2015 → senaste är stambytet",
+            stam(("Relining", "1995"), ("Stambyte", "2015")), ("stambyte", "grön"))
+
+print("\nRenoveringshorisont (köparprofil)")
+dh = {"rakenskapsar": {"slut": {"varde": "2024-12-31"}},
+      "planerat_underhall": [{"atgard": "Stambyte", "planerat_ar": "2034"}]}
+kontrollera("standard (5 år): stambyte 2034 räknas inte", stora_renoveringar(dh), [])
+kontrollera("5 år: stambyte 2034 räknas inte", stora_renoveringar(dh, 5), [])
+kontrollera("familj (15 år): stambyte 2034 räknas", stora_renoveringar(dh, 15), ["Stambyte"])
 
 print(f"\n{godkanda}/{totalt} tester godkända")
 sys.exit(0 if godkanda == totalt else 1)

@@ -18,21 +18,32 @@ GA_VIDARE, AVVAKTA, SORTERA_BORT = "GÅ VIDARE", "AVVAKTA", "SORTERA BORT"
 POANG_PER_FARG = {GRON: 1.0, GUL: 0.5, ROD: 0.0}
 
 
-def vikt(namn):
-    return k.UTSLAG_VIKTER.get(namn, k.UTSLAG_VIKT_STANDARD)
+def vikt(namn, vikter=None):
+    """Vikten för ett nyckeltal. vikter = köparprofilens vikter (kriterier.los_profil);
+    None = basvikterna i UTSLAG_VIKTER."""
+    return (vikter or k.UTSLAG_VIKTER).get(namn, k.UTSLAG_VIKT_STANDARD)
 
 
-def tung(namn):
-    return vikt(namn) >= k.UTSLAG_TUNG_VIKT
+def tung(namn, vikter=None):
+    return vikt(namn, vikter) >= k.UTSLAG_TUNG_VIKT
 
 
-def poang(rader):
+def sparande_tung_rod(per_namn):
+    """Lågt sparande räknas som en tung röd risk bara om föreningen också har hög belåning
+    eller stort kommande underhåll (röd på någon av k.SPARANDE_TUNG_ROD_VILLKOR). Isolerat
+    lågt sparande med låg skuld och underhåll i ordning är ofarligt."""
+    if not k.SPARANDE_TUNG_ROD_KRAVER_RISK:
+        return True
+    return any(per_namn.get(n, {}).get("farg") == ROD for n in k.SPARANDE_TUNG_ROD_VILLKOR)
+
+
+def poang(rader, vikter=None):
     """Viktat snitt 0–100 över raderna som räknas, eller None om inga rader räknas."""
     raknas = [r for r in rader if r.get("raknas_i_utslag")]
-    total = sum(vikt(r["nyckeltal"]) for r in raknas)
+    total = sum(vikt(r["nyckeltal"], vikter) for r in raknas)
     if not total:
         return None
-    summa = sum(vikt(r["nyckeltal"]) * POANG_PER_FARG[k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"]]
+    summa = sum(vikt(r["nyckeltal"], vikter) * POANG_PER_FARG[k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"]]
                 for r in raknas)
     return round(summa / total * 100)
 
@@ -53,18 +64,18 @@ def stoppfaktorer(rader, vantad_avgiftshojning):
     return stopp
 
 
-def risker(rader, antal=3):
+def risker(rader, antal=3, vikter=None):
     """De största riskerna: röda före gula, tunga före lätta, i radordning. Korta texter."""
     kandidater = [(i, r) for i, r in enumerate(rader) if r.get("raknas_i_utslag") and r["farg"] in (ROD, GUL)]
-    kandidater.sort(key=lambda ir: (ir[1]["farg"] != ROD, -vikt(ir[1]["nyckeltal"]), ir[0]))
+    kandidater.sort(key=lambda ir: (ir[1]["farg"] != ROD, -vikt(ir[1]["nyckeltal"], vikter), ir[0]))
     return [r.get("kort") or f"{r['nyckeltal'].lower()} {r['vart_varde']}" for _, r in kandidater[:antal]]
 
 
-def datakvalitet(rader, varningar):
+def datakvalitet(rader, varningar, vikter=None):
     """("Säker"/"Osäker", förklaring)."""
     raknas = [r for r in rader if r.get("raknas_i_utslag")]
     saknas = [r["nyckeltal"] for r in raknas if r["farg"] == SAKNAS]
-    tunga_saknas = [n for n in saknas if tung(n)]
+    tunga_saknas = [n for n in saknas if tung(n, vikter)]
     osaker = (len(saknas) >= k.DATAKVALITET_OSAKER_SAKNADE or tunga_saknas
               or len(varningar) >= k.DATAKVALITET_OSAKER_VARNINGAR)
     delar = [f"{len(saknas)} av {len(raknas)} nyckeltal saknas" + (f" ({', '.join(saknas)})" if saknas else ""),
@@ -72,12 +83,18 @@ def datakvalitet(rader, varningar):
     return ("Osäker" if osaker else "Säker"), ", ".join(delar)
 
 
-def bedom_utslag(rader, varningar, vantad_avgiftshojning):
-    """Utslag, poäng, stoppfaktorer, motivering och datakvalitet som en dict."""
-    p = poang(rader)
+def bedom_utslag(rader, varningar, vantad_avgiftshojning, vikter=None):
+    """Utslag, poäng, stoppfaktorer, motivering och datakvalitet som en dict.
+    vikter = köparprofilens vikter (kriterier.los_profil); None = basvikterna."""
+    p = poang(rader, vikter)
     stopp = stoppfaktorer(rader, vantad_avgiftshojning)
+    per_namn = {r["nyckeltal"]: r for r in rader}
     tunga_roda = [r["nyckeltal"] for r in rader
-                  if r.get("raknas_i_utslag") and r["farg"] == ROD and tung(r["nyckeltal"])]
+                  if r.get("raknas_i_utslag") and r["farg"] == ROD and tung(r["nyckeltal"], vikter)]
+    # Lågt sparande ensamt (utan hög belåning eller stort kommande underhåll) ska inte
+    # kunna ge SORTERA BORT eller blockera GÅ VIDARE – se kriterier.SPARANDE_TUNG_ROD_*.
+    if "Sparande per kvm" in tunga_roda and not sparande_tung_rod(per_namn):
+        tunga_roda.remove("Sparande per kvm")
     if stopp:
         utslag = SORTERA_BORT
     elif len(tunga_roda) >= k.UTSLAG_SORTERA_BORT_TUNGA_RODA:
@@ -89,11 +106,12 @@ def bedom_utslag(rader, varningar, vantad_avgiftshojning):
     else:
         utslag = GA_VIDARE
 
-    storsta = risker(rader)
+    storsta = risker(rader, vikter=vikter)
     if stopp:
         stoppnamn = {"Äkta förening", "Revisorn", "Grundläggning"}
-        storsta = risker([r for r in rader if r["nyckeltal"] not in stoppnamn])
-    tunga_risker = [r for r in rader if r.get("raknas_i_utslag") and r["farg"] in (ROD, GUL) and tung(r["nyckeltal"])]
+        storsta = risker([r for r in rader if r["nyckeltal"] not in stoppnamn], vikter=vikter)
+    tunga_risker = [r for r in rader
+                    if r.get("raknas_i_utslag") and r["farg"] in (ROD, GUL) and tung(r["nyckeltal"], vikter)]
     rubrik = f"{utslag} ({p if p is not None else '–'}/100)."
     if stopp:
         motivering = f"{utslag} – stoppfaktor: {'; '.join(stopp)}."
@@ -112,7 +130,7 @@ def bedom_utslag(rader, varningar, vantad_avgiftshojning):
                  if len(tunga_roda) >= k.UTSLAG_SORTERA_BORT_TUNGA_RODA else "")
         motivering = rubrik + orsak + (f" Största riskerna: {' · '.join(storsta)}." if storsta else "")
 
-    kvalitet, kvalitet_text = datakvalitet(rader, varningar)
+    kvalitet, kvalitet_text = datakvalitet(rader, varningar, vikter)
     if kvalitet == "Osäker":
         motivering += " Underlaget är osäkert – kontrollera i PDF:en."
     return {

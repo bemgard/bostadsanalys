@@ -339,15 +339,18 @@ def redan_omforhandlad(resultat):
             and (resultat["vantad_avgiftshojning"] or 0) < gul)
 
 
-def inom_renoveringshorisont(planerat_ar, slutar):
-    """True om åtgärden ligger inom horisonten. Saknat/oläsligt år räknas som inom."""
+def inom_renoveringshorisont(planerat_ar, slutar, horisont=None):
+    """True om åtgärden ligger inom horisonten (år från räkenskapsårets slut; None =
+    RENOVERINGAR_HORISONT_AR, annars köparprofilens). Saknat/oläsligt år räknas som inom."""
+    if horisont is None:
+        horisont = k.RENOVERINGAR_HORISONT_AR
     ar = re.findall(r"\d{4}", planerat_ar or "")
     if not ar or slutar is None:
         return True
-    return min(int(a) for a in ar) <= slutar + k.RENOVERINGAR_HORISONT_AR
+    return min(int(a) for a in ar) <= slutar + horisont
 
 
-def stora_renoveringar(data):
+def stora_renoveringar(data, horisont=None):
     """Lista med stora åtgärder (enligt nyckelorden) inom horisonten, eller None om fältet saknas."""
     underhall = data.get("planerat_underhall")
     if not isinstance(underhall, list):
@@ -357,7 +360,7 @@ def stora_renoveringar(data):
     return [
         u["atgard"] for u in underhall
         if ar_stor_atgard(u.get("atgard") or "")
-        and inom_renoveringshorisont(u.get("planerat_ar"), slutar)
+        and inom_renoveringshorisont(u.get("planerat_ar"), slutar, horisont)
     ]
 
 
@@ -424,14 +427,30 @@ def byggdelar_i_text(text):
     return traffar
 
 
-def byggdelar(data, idag):
+def ar_relining(text):
+    """True om en stamåtgärd är en relining (livsförlängande infodring) och inte ett fullt
+    stambyte. Relining håller kortare och åldras därför mot egna gränser (se kriterier.py)."""
+    t = (text or "").lower()
+    return any(o in t for o in k.BYGGDELAR["stambyte"].get("relining_nyckelord", []))
+
+
+def byggdel_namn(nyckel, info):
+    """Visningsnamn för en byggdel – markerar relining så en 'ung' stam inte förvirrar."""
+    if nyckel == "stambyte" and info.get("typ") == "relining":
+        return "Stambyte (relining)"
+    return k.BYGGDELAR[nyckel]["namn"]
+
+
+def byggdelar(data, idag, horisont=None):
     """Senaste åtgärd och ålder per byggdel ur utfort_underhall, samt om en ny åtgärd
     är planerad inom renoveringshorisonten. None om fältet saknas (äldre extraktion).
-    Returnerar {nyckel: {"ar", "alder", "atgard", "planerad"}}; ar/alder är None om okänd."""
+    Returnerar {nyckel: {"ar", "alder", "atgard", "planerad", "typ"}}; ar/alder är None om
+    okänd. typ är "relining"/"stambyte" för stammarna, annars None."""
     utfort = data.get("utfort_underhall")
     if not isinstance(utfort, list):
         return None
-    resultat = {n: {"ar": None, "alder": None, "atgard": None, "planerad": False} for n in k.BYGGDELAR}
+    resultat = {n: {"ar": None, "alder": None, "atgard": None, "planerad": False, "typ": None}
+                for n in k.BYGGDELAR}
     for post in utfort:
         ar = senaste_ar(post.get("ar"))
         if ar is None:
@@ -439,10 +458,12 @@ def byggdelar(data, idag):
         for nyckel in byggdelar_i_text(post.get("atgard")):
             if resultat[nyckel]["ar"] is None or ar > resultat[nyckel]["ar"]:
                 resultat[nyckel].update(ar=ar, alder=idag.year - ar, atgard=post.get("atgard"))
+                if nyckel == "stambyte":
+                    resultat[nyckel]["typ"] = "relining" if ar_relining(post.get("atgard")) else "stambyte"
     # Planerade åtgärder inom horisonten (samma regel som för renoveringar)
     slut = rakenskapsar_slut(data)
     for post in data.get("planerat_underhall") or []:
-        if inom_renoveringshorisont(post.get("planerat_ar"), slut.year if slut else None):
+        if inom_renoveringshorisont(post.get("planerat_ar"), slut.year if slut else None, horisont):
             for nyckel in byggdelar_i_text(post.get("atgard")):
                 resultat[nyckel]["planerad"] = True
     return resultat
@@ -532,13 +553,18 @@ def farg_alder(manader):
 
 
 def farg_byggdel(nyckel, info):
-    """Färg för en byggdel. Okänd (ingen åtgärd i historiken) = gul."""
+    """Färg för en byggdel. Okänd (ingen åtgärd i historiken) = gul. En relining av
+    stammarna åldras mot egna, snålare gränser – den håller kortare än ett fullt stambyte."""
     granser = k.BYGGDELAR[nyckel]
     if info["alder"] is None:
         return GUL
-    if granser["rod_over"] is not None and info["alder"] > granser["rod_over"] and not info["planerad"]:
+    gul_over, rod_over = granser["gul_over"], granser["rod_over"]
+    if nyckel == "stambyte" and info.get("typ") == "relining":
+        gul_over = granser.get("relining_gul_over", gul_over)
+        rod_over = granser.get("relining_rod_over", rod_over)
+    if rod_over is not None and info["alder"] > rod_over and not info["planerad"]:
         return ROD
-    return GUL if info["alder"] > granser["gul_over"] else GRON
+    return GUL if info["alder"] > gul_over else GRON
 
 
 def farg_byggdelar(status):
@@ -654,8 +680,10 @@ def rad(namn, vart, foreningens, farg, kommentarer, fraga, avvikelse=None, varde
     }
 
 
-def bedom(data, idag):
-    """Räkna nyckeltal, sätt färger och utslag. Returnerar resultatet som dict."""
+def bedom(data, idag, profil=None):
+    """Räkna nyckeltal, sätt färger och utslag. Returnerar resultatet som dict.
+    profil = köparprofil i kriterier.KOPARPROFILER (None = standard, "par")."""
+    horisont, vikter = k.los_profil(profil)
     rader = []
 
     # Belåning per kvm bostadsrättsyta (bostadsrättsinnehavarna bär skulden, inte lokalerna)
@@ -802,9 +830,9 @@ def bedom(data, idag):
     ))
 
     # Renoveringar – utan redovisad underhållsplan blir raden minst gul
-    atgarder = stora_renoveringar(data)
+    atgarder = stora_renoveringar(data, horisont)
     likvida = likvida_per_kvm(data)
-    ar = k.RENOVERINGAR_HORISONT_AR
+    ar = horisont
     farg = farg_renoveringar(atgarder, likvida)
     plan_saknas = v(data, "underhallsplan_finns") is not True
     plan_okand = "underhallsplan_finns" not in data  # äldre extraktion utan fältet
@@ -831,15 +859,15 @@ def bedom(data, idag):
     ))
 
     # Byggdelar – ålder sedan senaste åtgärd, färg = sämsta byggdelen
-    delar = byggdelar(data, idag)
+    delar = byggdelar(data, idag, horisont)
     if delar is not None:
         beskrivning = ", ".join(
-            f"{k.BYGGDELAR[n]['namn']} {i['ar']} ({i['alder']} år)" if i["ar"] else f"{k.BYGGDELAR[n]['namn']} okänd"
+            f"{byggdel_namn(n, i)} {i['ar']} ({i['alder']} år)" if i["ar"] else f"{byggdel_namn(n, i)} okänd"
             for n, i in delar.items()
         )
         flaggade = [
-            f"{k.BYGGDELAR[n]['namn']}: senast åtgärdad {i['ar']} ({i['alder']} år sedan)" if i["ar"]
-            else f"{k.BYGGDELAR[n]['namn']}: ingen åtgärd i underhållshistoriken"
+            f"{byggdel_namn(n, i)}: senast åtgärdad {i['ar']} ({i['alder']} år sedan)" if i["ar"]
+            else f"{byggdel_namn(n, i)}: ingen åtgärd i underhållshistoriken"
             for n, i in delar.items() if farg_byggdel(n, i) != GRON
         ]
         kanda = [(i["alder"], k.BYGGDELAR[n]["namn"]) for n, i in delar.items() if i["alder"] is not None]
@@ -980,15 +1008,18 @@ def bedom(data, idag):
             r["fraga_till_maklare"] = None  # aldrig mäklarfrågor för rader utanför utslaget
 
     # Korta risktexter till motiveringen (övriga rader får "<nyckeltal> <värde>")
-    satt_korta_texter(rader, hojn, resultat, delar, atgarder, plan_saknas and not plan_okand)
+    satt_korta_texter(rader, hojn, resultat, delar, atgarder, plan_saknas and not plan_okand, horisont)
 
     # Utslag: stoppfaktorer, viktad poäng, motivering och datakvalitet (utslag.py)
     farger = [k.SAKNAS_RAKNAS_SOM if r["farg"] == SAKNAS else r["farg"] for r in rader if r["raknas_i_utslag"]]
     roda, gula = farger.count(ROD), farger.count(GUL)
-    beslut = utslagsmodul.bedom_utslag(rader, varningar, resultat["vantad_avgiftshojning"] if resultat else None)
+    beslut = utslagsmodul.bedom_utslag(rader, varningar,
+                                       resultat["vantad_avgiftshojning"] if resultat else None, vikter)
 
     return {
         "forening": v(data, "foreningens_namn"),
+        "koparprofil": profil or k.STANDARD_KOPARPROFIL,
+        "renoveringshorisont_ar": horisont,
         "org_nr": v(data, "organisationsnummer"),
         "rakenskapsar_slut": str(rakenskapsar_slut(data)) if rakenskapsar_slut(data) else None,
         "idag": idag.isoformat(),
@@ -1023,7 +1054,7 @@ def bedom(data, idag):
     }
 
 
-def satt_korta_texter(rader, hojn, rantor, delar, atgarder, plan_saknas):
+def satt_korta_texter(rader, hojn, rantor, delar, atgarder, plan_saknas, horisont=None):
     """Sätt r["kort"] – en kort risktext för motiveringen – på rader där standardtexten
     ("<nyckeltal> <värde>") blir för lång eller otydlig."""
     per_namn = {r["nyckeltal"]: r for r in rader}
@@ -1053,7 +1084,7 @@ def satt_korta_texter(rader, hojn, rantor, delar, atgarder, plan_saknas):
             per_namn["Byggdelar"]["kort"] = "; ".join(delar_text)
     if "Renoveringar" in per_namn:
         if atgarder:
-            per_namn["Renoveringar"]["kort"] = (f"stora renoveringar inom {k.RENOVERINGAR_HORISONT_AR} år: "
+            per_namn["Renoveringar"]["kort"] = (f"stora renoveringar inom {horisont or k.RENOVERINGAR_HORISONT_AR} år: "
                                                 + "; ".join(atgarder[:2]) + (" m.fl." if len(atgarder) > 2 else ""))
         elif plan_saknas:
             per_namn["Renoveringar"]["kort"] = "ingen underhållsplan redovisas"
@@ -1081,6 +1112,8 @@ def main():
     parser = argparse.ArgumentParser(description="Bedöm en förening utifrån extraherad JSON.")
     parser.add_argument("fil", help="data/extracted/<namn>.json")
     parser.add_argument("--idag", help="Dagens datum ÅÅÅÅ-MM-DD (för rapportens ålder)")
+    parser.add_argument("--profil", choices=list(k.KOPARPROFILER),
+                        help=f"Köparprofil (standard: {k.STANDARD_KOPARPROFIL})")
     args = parser.parse_args()
 
     idag = date.today()
@@ -1089,10 +1122,10 @@ def main():
         if idag is None:
             sys.exit(f"Ogiltigt datum för --idag: {args.idag} (använd ÅÅÅÅ-MM-DD)")
 
-    bedom_fil(Path(args.fil), idag)
+    bedom_fil(Path(args.fil), idag, args.profil)
 
 
-def bedom_fil(sokvag: Path, idag: date) -> dict:
+def bedom_fil(sokvag: Path, idag: date, profil=None) -> dict:
     """Läs en extraherad JSON-fil, bedöm den, skriv ut tabellen och spara i data/bedomning/.
     Returnerar resultatet. Avslutar med felmeddelande vid fel."""
     if not sokvag.exists():
@@ -1102,9 +1135,9 @@ def bedom_fil(sokvag: Path, idag: date) -> dict:
     except json.JSONDecodeError as e:
         sys.exit(f"Filen är inte giltig JSON: {e}")
 
-    resultat = bedom(data, idag)
+    resultat = bedom(data, idag, profil)
 
-    print(f"{resultat['forening']} – räkenskapsår t.o.m. {resultat['rakenskapsar_slut']} (bedömt {idag})\n")
+    print(f"{resultat['forening']} – räkenskapsår t.o.m. {resultat['rakenskapsar_slut']} (bedömt {idag}, köparprofil: {k.KOPARPROFILER[resultat['koparprofil']]['namn']})\n")
     skriv_tabell(resultat)
     print(f"\n{resultat['motivering']}")
     print(f"Datakvalitet: {resultat['datakvalitet']} ({resultat['datakvalitet_forklaring']})")

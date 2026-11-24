@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import utslag as u  # noqa: E402
+import kriterier as k  # noqa: E402
 
 TUNGA = ["Belåning per kvm", "Sparande per kvm", "Räntebindning", "Avgiftshöjningar", "Renoveringar",
          "Byggdelar", "Grundläggning"]
@@ -24,8 +25,16 @@ def rader(**farger):
             for n in TUNGA + LATTA]
 
 
-def bedom(r, varningar=(), vantad=0.0):
-    return u.bedom_utslag(r, list(varningar), vantad)
+def bedom(r, varningar=(), vantad=0.0, profil=None):
+    return u.bedom_utslag(r, list(varningar), vantad, k.los_profil(profil)[1] if profil else None)
+
+
+def kastar(f):
+    try:
+        f()
+    except ValueError:
+        return True
+    return False
 
 
 alla_gula = rader(**{n.replace(" ", "_"): "gul" for n in TUNGA + LATTA})
@@ -35,9 +44,28 @@ FALL = [
     ("allt gult → 50 och AVVAKTA", (bedom(alla_gula)["poang"], bedom(alla_gula)["utslag"]), (50, "AVVAKTA")),
     ("tung röd väger mer än lätt röd",
      bedom(rader(Sparande_per_kvm="röd"))["poang"] < bedom(rader(Energikostnad_per_kvm="röd"))["poang"], True),
-    ("en röd tung → högst AVVAKTA trots hög poäng", bedom(rader(Sparande_per_kvm="röd"))["utslag"], "AVVAKTA"),
+    ("en röd tung → högst AVVAKTA trots hög poäng", bedom(rader(Räntebindning="röd"))["utslag"], "AVVAKTA"),
     ("motiveringen säger varför den inte blir GÅ VIDARE",
-     "kan inte bli GÅ VIDARE" in bedom(rader(Sparande_per_kvm="röd"))["motivering"], True),
+     "kan inte bli GÅ VIDARE" in bedom(rader(Räntebindning="röd"))["motivering"], True),
+    # Sparande är villkorat: tung röd bara med hög belåning eller stort kommande underhåll
+    ("sparande ensam röd → kan bli GÅ VIDARE", bedom(rader(Sparande_per_kvm="röd"))["utslag"], "GÅ VIDARE"),
+    ("sparande ensam röd syns ändå bland riskerna",
+     "sparande per kvm x" in bedom(rader(Sparande_per_kvm="röd"))["motivering"], True),
+    ("sparande röd + byggdelar röd → SORTERA BORT",
+     bedom(rader(Sparande_per_kvm="röd", Byggdelar="röd"))["utslag"], "SORTERA BORT"),
+    ("sparande röd + renoveringar röd → SORTERA BORT",
+     bedom(rader(Sparande_per_kvm="röd", Renoveringar="röd"))["utslag"], "SORTERA BORT"),
+    ("sparande röd + belåning gul (inte röd) → kan bli GÅ VIDARE",
+     bedom(rader(Sparande_per_kvm="röd", Belåning_per_kvm="gul"))["utslag"], "GÅ VIDARE"),
+    # Köparprofiler
+    ("par-profilen ger exakt basvikterna", k.los_profil("par")[1] == k.UTSLAG_VIKTER, True),
+    ("par: röd räntekänslighet är lätt → kan bli GÅ VIDARE",
+     bedom(rader(Räntekänslighet="röd"))["utslag"], "GÅ VIDARE"),
+    ("ensamstående: röd räntekänslighet är tung → högst AVVAKTA",
+     bedom(rader(Räntekänslighet="röd"), profil="ensamstaende")["utslag"], "AVVAKTA"),
+    ("familj: gul tomträtt drar ner poängen mer än för par",
+     bedom(rader(Tomträtt="gul"), profil="familj")["poang"] < bedom(rader(Tomträtt="gul"))["poang"], True),
+    ("okänd profil → fel", kastar(lambda: k.los_profil("pensionär")), True),
     ("två röda tunga → SORTERA BORT",
      bedom(rader(Sparande_per_kvm="röd", Belåning_per_kvm="röd"))["utslag"], "SORTERA BORT"),
     ("en röd lätt → kan bli GÅ VIDARE", bedom(rader(Energikostnad_per_kvm="röd"))["utslag"], "GÅ VIDARE"),
