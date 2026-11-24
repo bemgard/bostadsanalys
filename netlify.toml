@@ -1,0 +1,20 @@
+# Netlify publicerar gränssnittet (app/static) som det är – inget byggsteg.
+# /api/* skickas vidare till backenden på Render (samma adress för webbläsaren → ingen CORS).
+# Backendens adress står bara här: byt den här om Render-tjänsten får en annan adress.
+
+[build]
+  publish = "app/static"
+  command = ""
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://bostadsjakt.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://uowaovwyyvbvdtgscyvu.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"

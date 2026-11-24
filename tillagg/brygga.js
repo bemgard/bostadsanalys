@@ -1,4 +1,4 @@
-// Bostadsanalys – brygga mellan appen (localhost:8000) och tilläggets bakgrund.
+// Bostadsanalys – brygga mellan appen (bostadsjakt.netlify.app eller localhost:8000) och tilläggets bakgrund.
 // Appen skickar window.postMessage({ bostadsanalys: "ping" | "hamta", id, url }) och får svar
 // tillbaka som { bostadsanalysSvar: id, ... }. Bara meddelanden från samma sida godtas.
 "use strict";

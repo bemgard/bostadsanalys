@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Bostadsanalys – Booli-hämtare",
-  "version": "1.1",
-  "description": "Låter bostadsanalysen på din dator (localhost:8000) hämta Booli-annonser och föreningssidor med din inloggning, så att det räcker att dra in annonsen.",
+  "version": "1.2",
+  "description": "Låter bostadsanalysen (bostadsjakt.netlify.app eller localhost:8000) hämta Booli-annonser och föreningssidor med din inloggning, så att det räcker att dra in annonsen.",
   "host_permissions": [
     "https://www.booli.se/*"
   ],
@@ -12,6 +12,7 @@
   "content_scripts": [
     {
       "matches": [
+        "https://bostadsjakt.netlify.app/*",
         "http://localhost:8000/*",
         "http://127.0.0.1:8000/*"
       ],

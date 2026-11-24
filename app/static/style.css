@@ -113,3 +113,17 @@ input[type=text], input[type=url] { width: 100%; font: inherit; padding: .55rem 
 .profilknapp:hover { color: var(--text); }
 .profilknapp.vald { background: var(--kort); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
 .profilknapp:disabled { opacity: .5; cursor: wait; }
+
+/* Inloggning, konto och väckning av servern */
+.konto { display: inline-flex; align-items: center; gap: .5rem; margin-left: .25rem; min-width: 0; }
+.konto .dampad { max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.konto:empty { display: none; }
+.vackning { background: var(--gul-bg); border-bottom: 1px solid var(--linje); padding: .5rem 1.25rem; font-size: 14px; text-align: center; }
+.vackning[hidden] { display: none; }
+.inlogg { max-width: 26rem; margin: 2rem auto; }
+.inlogg input { width: 100%; }
+@media (max-width: 640px) {
+  .topp { flex-wrap: wrap; gap: .5rem; padding: .6rem 1rem; }
+  nav { flex-wrap: wrap; }
+  .konto .dampad { display: none; }
+}

@@ -1,0 +1,25 @@
+# Backenden på Render (gratisnivån, EU). Hemligheterna har sync: false – de sätts i Renders UI,
+# aldrig här: SUPABASE_SERVICE_ROLE_KEY och ANTHROPIC_API_KEY.
+services:
+  - type: web
+    name: bostadsjakt
+    runtime: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/halsa
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.15"
+      - key: SUPABASE_URL
+        value: https://uowaovwyyvbvdtgscyvu.supabase.co
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_RRMU89lOJVx1x-73RpY-5A_ObZgLYnE
+      - key: MANADSTAK_EXTRAKTIONER
+        value: "10"
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

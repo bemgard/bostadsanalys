@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Bostadsanalys</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -15,9 +16,12 @@
   <nav>
     <a href="#/" data-nav="oversikt">Översikt</a>
     <a href="#/ny" data-nav="ny" class="knapp primar">Ny analys</a>
+    <span id="konto" class="konto"></span>
   </nav>
 </header>
+<div id="vackning" class="vackning" hidden>Väcker servern – det tar upp till en minut efter en stunds vila…</div>
 <main id="vy" aria-live="polite"></main>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

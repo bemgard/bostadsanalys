@@ -354,7 +354,33 @@ def extrahera(pdf_sokvag: Path) -> Path:
     """Skicka PDF:en till API:t (KOSTAR PENGAR), validera och spara svaret.
     Returnerar sökvägen till JSON-filen. Avslutar med felmeddelande vid fel."""
     pdf_base64 = las_pdf(pdf_sokvag)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    resultat, usage = extrahera_data(pdf_base64, pdf_sokvag.name, OUTPUT_DIR / f"{pdf_sokvag.stem}_raw.json")
 
+    # Spara resultatet som JSON
+    utfil = utfil_for(pdf_sokvag)
+    utfil.write_text(json.dumps(resultat, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Kort sammanfattning
+    hittade, saknade = rakna_falt(resultat)
+    namn = resultat["foreningens_namn"]["varde"] or "(okänt namn)"
+    start = resultat["rakenskapsar"]["start"]["varde"] or "?"
+    slut = resultat["rakenskapsar"]["slut"]["varde"] or "?"
+
+    print("\n✅ Klart!")
+    print(f"Förening:     {namn}")
+    print(f"Räkenskapsår: {start} – {slut}")
+    print(f"Fält:         {hittade} hittade, {saknade} null")
+    print(f"Tokens:       {usage.input_tokens} in, {usage.output_tokens} ut")
+    print(f"Sparat till:  {utfil}")
+    return utfil
+
+
+def extrahera_data(pdf_base64: str, namn: str = "PDF:en", rafil: Path | None = None):
+    """Själva API-anropet (KOSTAR PENGAR) utan filer: skicka PDF:en (base64), validera svaret.
+    Returnerar (resultat, usage). Avslutar med felmeddelande vid fel; om rafil anges sparas
+    råsvaret där när svaret inte validerar (för felsökning utan nytt, betalt anrop).
+    Används av extrahera() här och av webbappen i molnet."""
     load_dotenv()
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -362,7 +388,7 @@ def extrahera(pdf_sokvag: Path) -> Path:
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    print(f"Skickar {pdf_sokvag.name} till {MODEL} ...")
+    print(f"Skickar {namn} till {MODEL} ...")
     try:
         # Sonnet 5.5 tillåter inte tvingad tool_choice ("any"/"tool"), så vi använder
         # "auto" + instruktion. Svarets form kontrolleras med validera() nedan.
@@ -410,33 +436,16 @@ def extrahera(pdf_sokvag: Path) -> Path:
         sys.exit("Modellen anropade inte verktyget – ingen data extraherades. Försök igen.")
 
     resultat = tool_use.input
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Kontrollera att alla fält finns med rätt form. Vid fel sparas råsvaret
+    # Kontrollera att alla fält finns med rätt form. Vid fel sparas råsvaret (om rafil anges)
     # så att det går att felsöka utan att göra (och betala för) ett nytt anrop.
     fel = validera(resultat, TOOL["input_schema"])
     if fel:
-        rafil = OUTPUT_DIR / f"{pdf_sokvag.stem}_raw.json"
+        if rafil is None:
+            sys.exit(f"Ogiltigt svar från modellen: {fel}")
         rafil.write_text(response.to_json(), encoding="utf-8")
         sys.exit(f"Ogiltigt svar från modellen: {fel}\nRåsvaret sparat till: {rafil}")
-
-    # Spara resultatet som JSON
-    utfil = utfil_for(pdf_sokvag)
-    utfil.write_text(json.dumps(resultat, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # Kort sammanfattning
-    hittade, saknade = rakna_falt(resultat)
-    namn = resultat["foreningens_namn"]["varde"] or "(okänt namn)"
-    start = resultat["rakenskapsar"]["start"]["varde"] or "?"
-    slut = resultat["rakenskapsar"]["slut"]["varde"] or "?"
-
-    print("\n✅ Klart!")
-    print(f"Förening:     {namn}")
-    print(f"Räkenskapsår: {start} – {slut}")
-    print(f"Fält:         {hittade} hittade, {saknade} null")
-    print(f"Tokens:       {response.usage.input_tokens} in, {response.usage.output_tokens} ut")
-    print(f"Sparat till:  {utfil}")
-    return utfil
+    return resultat, response.usage
 
 
 if __name__ == "__main__":

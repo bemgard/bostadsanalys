@@ -38,6 +38,16 @@ uppdaterar Excel.
 | `app/static/` | Gränssnittet: översikt, ny analys (dropzon), resultat med bubblor |
 | `export_excel.py` | Bygger `output/bostadsanalys.xlsx` (en rad per annons) |
 | `bokmarke/` | Bokmärket (`bostadsanalys.js`), `bygg.py` → `installera.html` |
+| `app/server.py` | Webbappens backend (FastAPI): Supabase-JWT på varje anrop, extraktion som jobb, månadstak |
+| `app/moln.py` | Supabase-lagret (PostgREST, Storage, Auth) med httpx |
+| `app/static/` | Gränssnittet (inget byggsteg) – publiceras av Netlify; `config.js` = publik Supabase-nyckel |
+| `tillagg/` | Chrome-tillägget som hämtar Booli-sidor med användarens inloggning |
+| `migrera_till_moln.py` | Idempotent flytt av `data/` till Supabase (torrkörning utan `--kor`) |
+
+**Molnet:** Netlify (`bostadsjakt`, `netlify.toml`) → `/api/*` proxas till Render (`render.yaml`) →
+Supabase (projekt `uowaovwyyvbvdtgscyvu`, privat bucket `arsredovisningar`, RLS per hushåll).
+Hemliga nycklar (service_role, Anthropic) bara som env-var på Render och i lokala `.env` – repot är publikt.
+Se `docs/overlamning.md`.
 
 **Data** (inte i git): `data/pdfs/` (PDF:er, prefix från URL:ens unika del), `data/extracted/`
 (Claudes JSON), `data/bedomning/` (bedömningar), `data/annonser.json`, `output/` (Excel).
@@ -56,6 +66,6 @@ venv/bin/python tests/test_avgiftshojningar.py
 venv/bin/python tests/test_avgiftsniva.py
 venv/bin/python tests/test_utslag.py
 venv/bin/python tests/test_booli.py
-venv/bin/python tests/test_server.py   # kräver fastapi + httpx
+venv/bin/python tests/test_server.py   # API:t mot en låtsas-Supabase (fastapi + httpx)
 node bokmarke/test_bokmarke.js
 ```

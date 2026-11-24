@@ -1,6 +1,7 @@
-anthropic
-python-dotenv
-openpyxl
-fastapi
-uvicorn
-httpx
+# Samma versioner lokalt och på Render
+anthropic==1.12.1
+python-dotenv==1.2.4
+openpyxl==3.1.5
+fastapi==0.165.0
+uvicorn==0.54.0
+httpx==0.28.1

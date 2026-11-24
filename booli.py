@@ -229,9 +229,12 @@ def _spara_felsokning(html_text: str, med_cookie: bool):
     except OSError:
         pass
 
-def tolka_sidor(url: str, annons_html: str, forening_html: str | None) -> dict:
+def tolka_sidor(url: str, annons_html: str, forening_html: str | None,
+                forening_url: str | None = None) -> dict:
     """Samma resultat som fran_annons, men från sidor som redan hämtats – av Chrome-tillägget
-    i användarens inloggade webbläsare (Booli visar dokumentlänkarna bara för inloggade)."""
+    i användarens inloggade webbläsare (Booli visar dokumentlänkarna bara för inloggade).
+    forening_url = föreningssidan tillägget faktiskt läste. Den måste vara annonsens förening
+    (brödsmulorna), annars kan annonsen få en annan förenings årsredovisning."""
     url = url.strip().split("?")[0].split("#")[0].rstrip("/")
     if not ANNONS_MONSTER.match(url):
         raise BooliFel("Det där är ingen Booli-annons (https://www.booli.se/bostad/… eller /annons/…).")
@@ -240,6 +243,11 @@ def tolka_sidor(url: str, annons_html: str, forening_html: str | None) -> dict:
     if not sokvag:
         return {"annons": annons, "pdf_url": None, "forening_url": None,
                 "meddelande": "Annonsen har ingen länk till en bostadsrättsförening."}
+    if forening_url is not None:
+        last = re.sub(r"^https://www\.booli\.se", "", forening_url.split("?")[0].split("#")[0]).rstrip("/")
+        if last != sokvag:
+            raise BooliFel(f"Tillägget läste fel föreningssida ({last}, annonsen hör till {sokvag}). "
+                           "Försök igen eller dra in PDF:en.")
     pdf = las_forening_pdf(forening_html or "")
     meddelande = None
     if not pdf:

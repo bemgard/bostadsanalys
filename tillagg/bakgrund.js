@@ -1,10 +1,14 @@
 // Bostadsanalys – tilläggets bakgrund. Hämtar BARA Booli-annonser och föreningssidor,
-// med användarens vanliga inloggning i Chrome, och lämnar sidornas HTML till appen på
-// localhost via brygga.js. Inget annat läses, skickas eller sparas.
+// med användarens vanliga inloggning i Chrome, och lämnar sidornas HTML till appen
+// (bostadsjakt.netlify.app eller localhost) via brygga.js. Inget annat läses, skickas eller sparas.
 "use strict";
 
 const ANNONS = /^https:\/\/www\.booli\.se\/(bostad|annons)\/\d+$/;
 const FORENING = /\/bostadsrattsforening\/\d+(?=["'?#\/\\]|$)/;
+// Annonsens egen förening står i brödsmulorna (JSON-LD BreadcrumbList). Sidan kan också länka
+// till andra föreningar (t.ex. liknande bostäder), så brödsmulan går före första bästa länk.
+const BRODSMULA = /"item"\s*:\s*(?:\{[^}]*?"@id"\s*:\s*)?"https:\/\/www\.booli\.se(\/bostadsrattsforening\/\d+)/;
+const APPAR = /^(http:\/\/(localhost|127\.0\.0\.1):8000|https:\/\/bostadsjakt\.netlify\.app)\//;
 
 async function hamtaText(url) {
   const svar = await fetch(url, { credentials: "include", redirect: "follow" });
@@ -48,18 +52,21 @@ async function hamtaAnnons(url) {
   url = String(url || "").split(/[?#]/)[0].replace(/\/$/, "");
   if (!ANNONS.test(url)) throw new Error("Ingen Booli-annons.");
   const annonsHtml = await hamtaText(url);
-  const m = annonsHtml.match(FORENING);
-  let foreningHtml = null, inloggad = null;
-  if (m) {
-    const sida = await lasRenderadSida("https://www.booli.se" + m[0]);
+  const smula = annonsHtml.match(BRODSMULA), m = annonsHtml.match(FORENING);
+  const forening = smula ? smula[1] : m ? m[0] : null;
+  let foreningHtml = null, inloggad = null, foreningUrl = null;
+  if (forening) {
+    foreningUrl = "https://www.booli.se" + forening;
+    const sida = await lasRenderadSida(foreningUrl);
     foreningHtml = sida.html; inloggad = sida.inloggad;
   }
-  return { annons_url: url, annons_html: annonsHtml, forening_html: foreningHtml, inloggad };
+  // forening_url: servern kontrollerar att det är annonsens förening innan PDF:en används
+  return { annons_url: url, annons_html: annonsHtml, forening_html: foreningHtml, forening_url: foreningUrl, inloggad };
 }
 
 chrome.runtime.onMessage.addListener((meddelande, avsandare, svara) => {
-  // Bara från tilläggets egen brygga på localhost
-  if (!avsandare.tab || !/^http:\/\/(localhost|127\.0\.0\.1):8000\//.test(avsandare.url || "")) return;
+  // Bara från tilläggets egen brygga i appen (molnet eller localhost)
+  if (!avsandare.tab || !APPAR.test(avsandare.url || "")) return;
   if (meddelande && meddelande.typ === "ping") { svara({ ok: true, version: chrome.runtime.getManifest().version }); return; }
   if (meddelande && meddelande.typ === "hamta") {
     hamtaAnnons(meddelande.url)

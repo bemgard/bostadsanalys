@@ -1,5 +1,6 @@
 // Bostadsanalys – gränssnittet. Inga beroenden, inget byggsteg.
-// Vyer (hash-adresser): #/ översikt · #/ny ny analys · #/objekt/<id> resultat
+// Vyer (hash-adresser): #/ översikt · #/ny ny analys · #/objekt/<id> resultat · inloggning
+// Inloggning: Supabase Auth med magisk länk (bara inbjudna). Adress och publik nyckel i config.js.
 "use strict";
 
 const vy = document.getElementById("vy");
@@ -17,8 +18,108 @@ const nf = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 });
 function kr(x, enhet = "kr") { return x == null ? "–" : `${nf.format(Math.round(x))} ${enhet}`; }
 function mkr(x) { return x == null ? "–" : `${(x / 1e6).toLocaleString("sv-SE", { maximumFractionDigits: 2 })} Mkr`; }
 
-async function api(sokvag, alternativ = {}) {
-  const svar = await fetch(sokvag, alternativ);
+// --- Inloggning (Supabase Auth, magisk länk) ------------------------------------
+const KONFIG = window.BOSTADSANALYS || {};
+const SESSION = "session";
+
+function lasSession() { try { return JSON.parse(localStorage.getItem(SESSION) || "null"); } catch { return null; } }
+function sparaSession(s) { try { s ? localStorage.setItem(SESSION, JSON.stringify(s)) : localStorage.removeItem(SESSION); } catch { /* privat läge */ } }
+
+// Efter klick på länken i mejlet kommer man tillbaka med #access_token=…&refresh_token=… i adressen
+function taEmotInloggning() {
+  const h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  if (h.get("access_token") && h.get("refresh_token")) {
+    sparaSession({ access_token: h.get("access_token"), refresh_token: h.get("refresh_token"),
+                   expires_at: Date.now() / 1000 + Number(h.get("expires_in") || 3600) });
+    history.replaceState(null, "", location.pathname + "#/");
+  } else if (h.get("error_description")) {
+    history.replaceState(null, "", location.pathname + "#/");
+    return h.get("error_description").replace(/\+/g, " ");
+  }
+  return null;
+}
+
+async function auth(sokvag, kropp) {
+  const svar = await fetch(`${KONFIG.supabaseUrl}/auth/v1/${sokvag}`, {
+    method: "POST", headers: { "Content-Type": "application/json", apikey: KONFIG.supabaseKey },
+    body: JSON.stringify(kropp),
+  });
+  const data = await svar.json().catch(() => ({}));
+  if (!svar.ok) throw new Error(data.msg || data.error_description || data.message || `Fel ${svar.status}`);
+  return data;
+}
+
+let fornyar = null;
+async function giltigToken(tvinga = false) {
+  const s = lasSession();
+  if (!s) return null;
+  if (!tvinga && s.expires_at - Date.now() / 1000 > 60) return s.access_token;
+  fornyar = fornyar || auth("token?grant_type=refresh_token", { refresh_token: s.refresh_token })
+    .then((d) => { sparaSession({ access_token: d.access_token, refresh_token: d.refresh_token, expires_at: d.expires_at || Date.now() / 1000 + d.expires_in }); return d.access_token; })
+    .catch(() => { sparaSession(null); return null; })
+    .finally(() => { fornyar = null; });
+  return fornyar;
+}
+
+function loggaUt() {
+  const s = lasSession();
+  if (s) fetch(`${KONFIG.supabaseUrl}/auth/v1/logout`, { method: "POST", headers: { apikey: KONFIG.supabaseKey, Authorization: `Bearer ${s.access_token}` } }).catch(() => {});
+  sparaSession(null); PROFILER = null; visaLogin();
+}
+
+function visaLogin(meddelande) {
+  satNav("");
+  document.getElementById("konto").innerHTML = "";
+  vy.innerHTML = `<div class="kort inlogg">
+    <h1>Logga in</h1>
+    <p class="dampad">Skriv din e-postadress så får du en inloggningslänk. Bara inbjudna kan logga in.</p>
+    <form id="loggain"><label for="epost">E-post</label>
+      <input type="email" id="epost" autocomplete="email" required>
+      <div class="knapprad"><button class="knapp primar" type="submit">Skicka länk</button></div></form>
+    <div id="status">${meddelande ? `<div class="fel">${esc(meddelande)}</div>` : ""}</div></div>`;
+  document.getElementById("loggain").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const knapp = e.target.querySelector("button");
+    knapp.disabled = true;
+    try {
+      // create_user: false – inga nya konton härifrån, bara inbjudna
+      await auth(`otp?redirect_to=${encodeURIComponent(location.origin + location.pathname)}`,
+                 { email: document.getElementById("epost").value.trim(), create_user: false });
+      document.getElementById("status").innerHTML = '<div class="kort kostnad" style="margin-top:1rem">Kolla din e-post och klicka på länken. Du kan stänga den här fliken.</div>';
+    } catch (err) { knapp.disabled = false; visaFel(err.message); }
+  });
+}
+
+class EjInloggad extends Error {}
+
+// Render (gratisnivån) somnar efter en kvarts stillhet och tar ungefär en minut att väcka.
+// Under tiden svarar proxyn med fel 502–504 eller inte alls – då försöker vi igen en stund.
+async function hamta(sokvag, alternativ, token) {
+  const huvuden = { ...(alternativ.headers || {}), Authorization: `Bearer ${token}` };
+  for (let forsok = 0; ; forsok++) {
+    try {
+      const svar = await fetch(sokvag, { ...alternativ, headers: huvuden });
+      if (![502, 503, 504].includes(svar.status) || forsok >= 8) return svar;
+    } catch (err) { if (forsok >= 8) throw new Error("Servern svarar inte. Försök igen om en stund."); }
+    if (forsok === 0) document.getElementById("vackning").hidden = false;
+    await new Promise((r) => setTimeout(r, 8000));
+  }
+}
+
+async function api(sokvag, alternativ = {}, som = "json") {
+  let token = await giltigToken();
+  if (!token) throw new EjInloggad();
+  let svar;
+  try {
+    svar = await hamta(sokvag, alternativ, token);
+    if (svar.status === 401) {
+      token = await giltigToken(true);
+      if (!token) throw new EjInloggad();
+      svar = await hamta(sokvag, alternativ, token);
+      if (svar.status === 401) { sparaSession(null); throw new EjInloggad(); }
+    }
+  } finally { document.getElementById("vackning").hidden = true; }
+  if (som === "blob" && svar.ok) return svar.blob();
   let data = null;
   try { data = await svar.json(); } catch { /* inte JSON */ }
   if (!svar.ok) {
@@ -26,6 +127,7 @@ async function api(sokvag, alternativ = {}) {
     fel.status = svar.status; fel.data = data;
     throw fel;
   }
+  if (data && typeof data === "object" && !Array.isArray(data)) data._status = svar.status;
   return data;
 }
 
@@ -34,7 +136,7 @@ function satNav(namn) {
 }
 
 // --- Köparprofil (köpartyp) --------------------------------------------------
-// Profilerna hämtas en gång från servern. Valet på Ny analys sparas i webbläsaren.
+// Profilerna och användarens val hämtas en gång från servern. Valet sparas på kontot.
 let PROFILER = null;
 async function lasProfiler() {
   if (!PROFILER) PROFILER = await api("/api/profiler");
@@ -42,7 +144,11 @@ async function lasProfiler() {
 }
 function hamtaLagrat(nyckel) { try { return localStorage.getItem(nyckel); } catch { return null; } }
 function lagra(nyckel, varde) { try { localStorage.setItem(nyckel, varde); } catch { /* privat läge */ } }
-function valdProfil() { return hamtaLagrat("profil") || (PROFILER && PROFILER.standard) || "par"; }
+function valdProfil() { return (PROFILER && (PROFILER.vald || PROFILER.standard)) || "par"; }
+async function sparaProfil(id) {
+  await api("/api/installningar", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ koparprofil: id }) });
+  if (PROFILER) PROFILER.vald = id;
+}
 function profilnamn(id) { return (PROFILER && (PROFILER.profiler.find((p) => p.id === id) || {}).namn) || id; }
 
 // Segmenterad väljare för köpartyp. aktiv = markerad profil.
@@ -66,22 +172,31 @@ async function visaOversikt() {
   const objekt = await api("/api/objekt");
   if (!objekt.length) {
     vy.innerHTML = `<div class="kort tomt"><h1>Inga objekt än</h1>
-      <p class="dampad">Dra in en årsredovisning eller använd bokmärket på en Booli-annons.</p>
+      <p class="dampad">Ladda upp en årsredovisning eller dra in en Booli-annons på datorn.</p>
       <a class="knapp primar" href="#/ny">Ny analys</a></div>`;
     return;
   }
   vy.innerHTML = `
     <div class="rad"><div><h1>Översikt</h1><p class="dampad" style="margin:0">${objekt.length} objekt · bäst först</p></div>
       <div class="knapprad" style="margin:0">
-        <a class="knapp" href="/api/export.xlsx" download>Exportera till Excel</a>
+        <button class="knapp" id="export">Exportera till Excel</button>
         <a class="knapp primar" href="#/ny">Ny analys</a>
       </div></div>
     <div class="rutnat" style="margin-top:1.25rem">${objekt.map(objektkort).join("")}</div>`;
+  document.getElementById("export").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try {
+      const blob = await api("/api/export.xlsx", {}, "blob");
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "bostadsanalys.xlsx" });
+      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch (err) { if (err instanceof EjInloggad) return visaLogin(); alert(err.message); }
+    e.target.disabled = false;
+  });
 }
 
 function objektkort(o) {
   const farg = FARG[o.utslag] || "saknas";
-  return `<a class="kort objektkort ${farg}" href="#/objekt/${encodeURIComponent(o.stam)}">
+  return `<a class="kort objektkort ${farg}" href="#/objekt/${encodeURIComponent(o.id)}">
     <div class="rad"><span class="pill ${farg}">${esc(UTSLAGSTEXT[o.utslag] || o.utslag)}</span>
       <span class="poang" style="font-size:20px">${esc(o.poang ?? "–")}<small>/100</small></span></div>
     <h3>${esc(o.adress || o.forening)}</h3>
@@ -96,11 +211,11 @@ function objektkort(o) {
 
 // --- Resultat ----------------------------------------------------------------
 
-async function visaObjekt(stam) {
+async function visaObjekt(id) {
   satNav("");
   vy.innerHTML = '<p class="dampad">Hämtar analysen…</p>';
   await lasProfiler();
-  const d = await api(`/api/objekt/${encodeURIComponent(stam)}`);
+  const d = await api(`/api/objekt/${encodeURIComponent(id)}`);
   const b = d.bedomning, a = d.annons || {}, t = d.lagenhet;
   const farg = FARG[b.utslag] || "saknas";
   const profil = b.koparprofil || (PROFILER && PROFILER.standard);
@@ -109,7 +224,7 @@ async function visaObjekt(stam) {
   const sortera = (lista) => lista.slice().sort((x, y) => (ordning[x.farg] ?? 9) - (ordning[y.farg] ?? 9));
   const tunga = sortera(rader.filter((r) => r.tung));
   const ovriga = sortera(rader.filter((r) => !r.tung));
-  const bocka = JSON.parse(localStorage.getItem(`bocka:${stam}`) || "[]");
+  const bocka = JSON.parse(hamtaLagrat(`bocka:${id}`) || "[]");
 
   vy.innerHTML = `
     <div class="kort ${farg}">
@@ -155,7 +270,7 @@ async function visaObjekt(stam) {
         `<label><input type="checkbox" data-i="${i}" ${bocka.includes(i) ? "checked" : ""}><span>${esc(f)}</span></label>`).join("")}</div>` : ""}
 
     <div class="knapprad" style="margin-top:2rem">
-      ${d.pdf_finns ? `<a class="knapp" href="/api/pdf/${encodeURIComponent(stam)}" target="_blank" rel="noopener">Öppna årsredovisningen</a>` : ""}
+      ${d.pdf_finns ? '<button class="knapp" id="oppnaPdf">Öppna årsredovisningen</button>' : ""}
       ${a.annons_url ? `<a class="knapp" href="${esc(a.annons_url)}" target="_blank" rel="noopener">Visa på Booli</a>` : ""}
       <button class="knapp" id="bedomOm" title="Gratis – inget API-anrop">Bedöm om med dagens datum</button>
       <button class="knapp" id="arkivera">Arkivera</button>
@@ -164,16 +279,25 @@ async function visaObjekt(stam) {
 
   vy.querySelectorAll(".fragor input").forEach((cb) => cb.addEventListener("change", () => {
     const valda = [...vy.querySelectorAll(".fragor input:checked")].map((x) => Number(x.dataset.i));
-    localStorage.setItem(`bocka:${stam}`, JSON.stringify(valda));
+    lagra(`bocka:${id}`, JSON.stringify(valda));
   }));
+  // Årsredovisningen ligger i en privat bucket: hämta en kortlivad länk och öppna den.
+  // Fönstret öppnas direkt vid klicket (annars stoppar mobilens popup-spärr det).
+  document.getElementById("oppnaPdf")?.addEventListener("click", async () => {
+    const fonster = window.open("", "_blank");
+    try {
+      const { url } = await api(`/api/pdf/${encodeURIComponent(id)}`);
+      if (fonster) { fonster.opener = null; fonster.location = url; } else location.href = url;
+    } catch (err) { if (fonster) fonster.close(); alert(err.message); }
+  });
   document.getElementById("bedomOm").addEventListener("click", async (e) => {
     e.target.disabled = true;
     try {
-      await api(`/api/objekt/${encodeURIComponent(stam)}/bedom-om`, {
+      await api(`/api/objekt/${encodeURIComponent(id)}/bedom-om`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profil }),
       });
-      visaObjekt(stam);
+      visaObjekt(id);
     } catch (err) { alert(err.message); e.target.disabled = false; }
   });
   // Byt köpartyp: kör om bedömningen (gratis) med den valda profilen
@@ -182,16 +306,17 @@ async function visaObjekt(stam) {
     if (!knapp || knapp.classList.contains("vald")) return;
     vy.querySelectorAll(".profilrad .profilknapp").forEach((x) => (x.disabled = true));
     try {
-      await api(`/api/objekt/${encodeURIComponent(stam)}/bedom-om`, {
+      await api(`/api/objekt/${encodeURIComponent(id)}/bedom-om`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profil: knapp.dataset.profil }),
       });
-      visaObjekt(stam);
+      if (PROFILER) PROFILER.vald = knapp.dataset.profil;
+      visaObjekt(id);
     } catch (err) { alert(err.message); vy.querySelectorAll(".profilrad .profilknapp").forEach((x) => (x.disabled = false)); }
   });
   document.getElementById("arkivera").addEventListener("click", async () => {
-    if (!confirm("Flytta objektet till arkivet? Inget raderas – det ligger kvar i data/arkiv/.")) return;
-    try { await api(`/api/objekt/${encodeURIComponent(stam)}/arkivera`, { method: "POST" }); location.hash = "#/"; }
+    if (!confirm("Arkivera objektet? Det försvinner från översikten för hela hushållet. Inget raderas.")) return;
+    try { await api(`/api/objekt/${encodeURIComponent(id)}/arkivera`, { method: "POST" }); location.hash = "#/"; }
     catch (err) { alert(err.message); }
   });
 }
@@ -237,7 +362,7 @@ async function visaNy(param) {
   const v = (n) => esc(param.get(n) || "");
   vy.innerHTML = `
     <h1>Ny analys</h1>
-    <p class="dampad">Dra in länken till Booli-annonsen (eller klistra in den med Cmd+V) – då hämtas pris, avgift, storlek och årsredovisning automatiskt. Det går också att dra in årsredovisningens PDF. <a href="#/tillagg">Tillägget i Chrome</a> behövs för att hämta årsredovisningen automatiskt.</p>
+    <p class="dampad">Välj årsredovisningens PDF – i mobilen eller på datorn. På datorn kan du också dra in länken till Booli-annonsen (eller klistra in den med Cmd+V); då hämtas pris, avgift, storlek och årsredovisning automatiskt med <a href="#/tillagg">tillägget i Chrome</a>.</p>
     <div class="kort profilkort">
       <div class="rad"><div><strong>Köpartyp</strong>
         <div class="dampad">Styr vikten på riskerna och hur långt fram underhåll räknas – föreningens gränser är lika för alla.</div></div>
@@ -245,8 +370,8 @@ async function visaNy(param) {
     </div>
     <div class="dropp" id="dropp" tabindex="0" role="button" aria-label="Välj eller dra in en PDF">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 15v4h14v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <strong id="droppText">Dra in annonsen från Booli här</strong>
-      <span>eller klistra in länken · dra in en PDF · klicka för att välja fil</span>
+      <strong id="droppText">Välj årsredovisningen (PDF)</strong>
+      <span>tryck för att välja fil · eller dra in en PDF eller en Booli-annons</span>
       <input type="file" id="fil" accept="application/pdf" hidden>
     </div>
     <div class="kort" style="margin-top:1rem">
@@ -294,7 +419,7 @@ async function visaNy(param) {
   vy.querySelector(".profilkort .profilval")?.addEventListener("click", (e) => {
     const knapp = e.target.closest("[data-profil]");
     if (!knapp) return;
-    lagra("profil", knapp.dataset.profil);
+    sparaProfil(knapp.dataset.profil).catch((err) => visaFel(err.message));
     vy.querySelectorAll(".profilkort .profilknapp").forEach((b) => {
       const vald = b === knapp;
       b.classList.toggle("vald", vald);
@@ -400,7 +525,7 @@ async function visaTillagg() {
       <li>Välj mappen <b>Projects → bostadsanalys → tillagg</b> och klicka Välj.</li>
       <li>Kom tillbaka hit och <b>ladda om sidan</b> (Cmd + R).</li>
     </ol>
-    <p class="dampad" style="margin-bottom:0">Tillägget får bara läsa sidor på booli.se och bara svara den här appen på din dator. Se till att du är inloggad på Booli i Chrome.</p></div>`}
+    <p class="dampad" style="margin-bottom:0">Tillägget får bara läsa sidor på booli.se och bara svara den här appen. Se till att du är inloggad på Booli i Chrome. Har du en äldre version installerad: klicka på pilen (Uppdatera) på tilläggets kort.</p></div>`}
     <div class="knapprad"><a class="knapp primar" href="#/ny">Till Ny analys</a></div>`;
 }
 
@@ -420,11 +545,18 @@ async function korAnalys(forberedd, annons, steg) {
     if (!bekrafta) { knapp.disabled = false; visaFel("Avbrutet – ingen extraktion gjord."); return; }
   }
   visaSteg(steg, forberedd.redan_extraherad ? 2 : 1);
-  const klar = await api("/api/analysera", {
+  let klar = await api("/api/analysera", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ stam: forberedd.stam, bekrafta_kostnad: bekrafta, annons, profil: valdProfil() }),
+    body: JSON.stringify({ dokument_id: forberedd.dokument_id, bekrafta_kostnad: bekrafta, annons, profil: valdProfil() }),
   });
-  location.hash = `#/objekt/${encodeURIComponent(klar.stam)}`;
+  // Läsningen tar ofta över en minut och körs som ett jobb på servern – fråga tills det är klart
+  const jobbId = klar.jobb;
+  while (klar.status === "pagar") {
+    await new Promise((r) => setTimeout(r, 4000));
+    klar = await api(`/api/jobb/${encodeURIComponent(jobbId)}`);
+    if (klar.status === "fel") throw new Error(klar.fel || "Analysen misslyckades.");
+  }
+  location.hash = `#/objekt/${encodeURIComponent(klar.id)}`;
 }
 
 function visaFel(text) {
@@ -452,7 +584,7 @@ async function starta(valdFil) {
   try {
     visaSteg(steg, 0);
     const forberedd = valdFil
-      ? await api(`/api/ladda-upp?filnamn=${encodeURIComponent(valdFil.name)}`, { method: "POST", headers: { "Content-Type": "application/pdf" }, body: valdFil })
+      ? await api("/api/ladda-upp", { method: "POST", headers: { "Content-Type": "application/pdf" }, body: valdFil })
       : await api("/api/forbered", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdf_url: pdfUrl }) });
     await korAnalys(forberedd, annons, steg);
   } catch (err) {
@@ -465,7 +597,7 @@ function fragaKostnad() {
   return new Promise((svara) => {
     document.getElementById("status").innerHTML = `<div class="kort kostnad" style="margin-top:1rem">
       <strong>Den här årsredovisningen är inte läst förut.</strong><br>
-      Claude läser den – det kostar ca 1–2 kr och tar ungefär en minut.
+      Claude läser den – det kostar ca 1–2 kr och tar ungefär en minut.${PROFILER && PROFILER.kvar != null ? ` Du har ${esc(PROFILER.kvar)} sådana kvar den här månaden.` : ""}
       <div class="knapprad"><button class="knapp primar" id="ja">Kör analysen</button><button class="knapp" id="nej">Avbryt</button></div></div>`;
     document.getElementById("ja").addEventListener("click", () => svara(true));
     document.getElementById("nej").addEventListener("click", () => svara(false));
@@ -483,9 +615,25 @@ async function route() {
     else if (sokvag === "/tillagg") await visaTillagg();
     else await visaOversikt();
   } catch (err) {
+    if (err instanceof EjInloggad) { visaLogin(); return; }
     vy.innerHTML = `<div class="fel">${esc(err.message)}</div><p><a href="#/">Till översikten</a></p>`;
   }
   window.scrollTo(0, 0);
 }
-window.addEventListener("hashchange", route);
-route();
+
+async function visaKonto() {
+  const jag = await api("/api/jag");
+  if (PROFILER) PROFILER.kvar = jag.extraktioner_kvar;
+  document.getElementById("konto").innerHTML = `<span class="dampad" title="${esc(jag.email)}">${esc(jag.email)}</span>
+    <button class="knapp" id="loggaUt">Logga ut</button>`;
+  document.getElementById("loggaUt").addEventListener("click", loggaUt);
+}
+
+async function starta_app() {
+  const fel = taEmotInloggning();
+  if (!lasSession()) { visaLogin(fel); return; }
+  window.addEventListener("hashchange", route);
+  try { await lasProfiler(); await visaKonto(); } catch (err) { if (err instanceof EjInloggad) { visaLogin(); return; } }
+  route();
+}
+starta_app();
